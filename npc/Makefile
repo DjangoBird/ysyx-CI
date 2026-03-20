@@ -59,6 +59,9 @@ nvboard:
 clean:
 	rm -rf $(BUILD_DIR) wave.vcd
 
+lint:
+	verilator --lint-only -Wall -Iinclude --top-module top vsrc/*.v
+
 .PHONY: all run sim clean nvboard
 
 include ../Makefile
