@@ -1,36 +1,67 @@
-# 顶层模块名字
+# ========== 基本配置 ==========
 TOPNAME = top
+BUILD_DIR = build
+OBJ_DIR = $(BUILD_DIR)/obj_dir
+BIN = $(BUILD_DIR)/$(TOPNAME)
 
-# 工具
 VERILATOR = verilator
 
-# 源文件
-VSRCS = $(wildcard vsrc/*.v)
-CSRCS = $(wildcard csrc/*.cpp)
+# ========== 路径 ==========
+NXDC_FILES = top.nxdc
 
-# 构建目录
-BUILD_DIR = build
+# 自动生成绑定文件
+SRC_AUTO_BIND = $(abspath $(BUILD_DIR)/auto_bind.cpp)
 
-# 默认目标
-all: $(BUILD_DIR)/V$(TOPNAME)
+# ========== 源文件 ==========
+VSRCS = $(shell find $(abspath ./vsrc) -name "*.v")
+CSRCS = $(shell find $(abspath ./csrc) -name "*.c" -o -name "*.cc" -o -name "*.cpp")
+CSRCS += $(SRC_AUTO_BIND)
 
-# Verilator生成C++
-$(BUILD_DIR)/V$(TOPNAME): $(VSRCS) $(CSRCS)
+# ========== NVBoard ==========
+INC_PATH ?=
+include $(NVBOARD_HOME)/scripts/nvboard.mk
+
+# 自动生成 auto_bind.cpp
+$(SRC_AUTO_BIND): $(NXDC_FILES)
 	@mkdir -p $(BUILD_DIR)
-	$(VERILATOR) -Wall --trace --cc $(VSRCS) \
-		--exe $(CSRCS) \
-		--build \
-		-Mdir $(BUILD_DIR) \
-		--top-module $(TOPNAME)
+	python3 $(NVBOARD_HOME)/scripts/auto_pin_bind.py $^ $@
 
-# 运行仿真
-sim: 
-	$(call git_commit, "sim RTL") # DO NOT REMOVE THIS LINE!!!
-	all
-	./$(BUILD_DIR)/V$(TOPNAME)
+# ========== 编译参数 ==========
+INCFLAGS = $(addprefix -I, $(INC_PATH))
+CXXFLAGS += $(INCFLAGS)
 
-# 清理
+VERILATOR_FLAGS += -Wall --trace -cc --build \
+				   -O3 --x-assign fast --x-initial fast --noassert
+
+# ========== 构建 ==========
+all: $(BIN)
+
+$(BIN): $(VSRCS) $(CSRCS) $(NVBOARD_ARCHIVE)
+	@rm -rf $(OBJ_DIR)
+	$(VERILATOR) $(VERILATOR_FLAGS) \
+		--top-module $(TOPNAME) $^ \
+		$(addprefix -CFLAGS , $(CXXFLAGS)) \
+		$(addprefix -LDFLAGS , $(LDFLAGS)) \
+		--Mdir $(OBJ_DIR) --exe -o $(abspath $(BIN))
+
+# ========== 运行 ==========
+run: $(BIN)
+	@$^
+
+sim: run
+	$(call git_commit, "sim RTL")
+
+# ========== NVBoard ==========
+nvboard:
+	$(MAKE) -C $(NVBOARD_HOME) nvboard-archive
+
+# ========== 清理 ==========
 clean:
 	rm -rf $(BUILD_DIR) wave.vcd
+
+lint:
+	verilator --lint-only -Wall -Iinclude --top-module top vsrc/*.v
+
+.PHONY: all run sim clean nvboard
 
 include ../Makefile
