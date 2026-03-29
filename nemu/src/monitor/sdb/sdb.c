@@ -77,6 +77,8 @@ static int cmd_info(char *args){
   char *arg = strtok(NULL, " ");
   if(strcmp(arg,"r") == 0){
     isa_reg_display();
+  }else {
+    printf("Error, we only support delivering the registers' infomation");
   }
   return 0;
 }
