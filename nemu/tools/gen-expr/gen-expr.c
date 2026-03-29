@@ -62,8 +62,8 @@ static void append_str(const char *s) {
 
 static void gen_num(void) {
   char tmp[32];
-  // 保证是无符号数，范围随意，避免太长
-  unsigned val = (unsigned)(rand() % 1000u);
+  // 保证是无符号非 0 的数，避免出现明显的 "./0" 常量
+  unsigned val = (unsigned)(rand() % 1000u) + 1;  // 1~1000
   snprintf(tmp, sizeof(tmp), "%u", val);
 
   maybe_gen_spaces();
@@ -152,6 +152,11 @@ int main(int argc, char *argv[]) {
     int result;
     ret = fscanf(fp, "%d", &result);
     pclose(fp);
+
+    // 如果子程序因为除 0 等原因异常退出，没有正确打印结果，就跳过这一条
+    if (ret != 1) {
+      continue;
+    }
 
     printf("%u %s\n", result, buf);
   }
