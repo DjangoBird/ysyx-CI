@@ -111,6 +111,23 @@ static int cmd_x(char *args){
   return 0;
 }
 
+static int cmd_p(char *args){
+  if(args == NULL){
+    printf("Usage: p EXPR");
+    return 0;
+  }
+
+  bool success = false;
+  word_t result = expr(args, &success);
+  if(success){
+    printf("0x%08x\n", result);
+  } else {
+    printf("Invalid expression.\n");
+  }
+  
+  return 0;
+}
+
 static struct {
   const char *name;
   const char *description;
@@ -123,7 +140,8 @@ static struct {
   /* TODO: Add more commands */
   { "si", "Single-step exection", cmd_si},
   { "info", "Register detailed infomation", cmd_info},
-  { "x", "Scan memory", cmd_x }
+  { "x", "Scan memory", cmd_x },
+  { "p", "Evaluate expression", cmd_p }
 };
 
 #define NR_CMD ARRLEN(cmd_table)
