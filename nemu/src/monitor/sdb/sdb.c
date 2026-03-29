@@ -89,20 +89,20 @@ static int cmd_info(char *args){
 }
 
 static int cmd_x(char *args){
-  char *N = strtok(NULL," ");
-  char *EXPR = strtok(NULL," ");
+  char *N_str = strtok(NULL," ");
+  char *EXPR  = strtok(NULL," ");
   
-  if(N == NULL || EXPR == NULL){
+  if(N_str == NULL || EXPR == NULL){
     printf("Usage: x N EXPR");
     return 0;
   }
 
-  int len = 0;
+  int N = 0;
   vaddr_t addr;
-  sscanf(N,"%d",&len);
+  sscanf(N_str,"%d",&N);
   sscanf(EXPR,"%x",&addr);
 
-  for(int i = 0; i < len; i++){
+  for(int i = 0; i < N; i++){
     word_t data = vaddr_read(addr,4);
     printf("0x%08x: 0x%08x\n", addr, data);
     addr += 4;
