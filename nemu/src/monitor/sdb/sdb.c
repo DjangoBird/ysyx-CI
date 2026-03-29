@@ -25,6 +25,8 @@ static int is_batch_mode = false;
 
 void init_regex();
 void init_wp_pool();
+word_t expr(char *e, bool *success);
+void expr_highlight(char *e);
 
 /* We use the `readline' library to provide more flexibility to read from stdin. */
 static char* rl_gets() {
@@ -113,11 +115,14 @@ static int cmd_x(char *args){
 
 static int cmd_p(char *args){
   if(args == NULL){
-    printf("Usage: p EXPR");
+    printf("Usage: p EXPR\n");
     return 0;
   }
 
-  bool success = false;
+  // 先高亮显示表达式中的 token
+  expr_highlight(args);
+
+  bool success = true;
   word_t result = expr(args, &success);
   if(success){
     printf("0x%08x\n", result);
