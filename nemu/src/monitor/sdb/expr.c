@@ -21,7 +21,12 @@
 #include <regex.h>
 
 enum {
-  TK_NOTYPE = 256, TK_EQ,
+  TK_NOTYPE = 256, //空格
+  TK_EQ,
+  TK_INT,
+  TK_OP,
+  TK_REG,
+  TK_VAR
 
   /* TODO: Add more token types */
 
@@ -37,12 +42,24 @@ static struct rule {
    */
 
   {" +", TK_NOTYPE},    // spaces
-  {"\\+", '+'},         // plus
+  {"\\t",TK_NOTYPE},    // tab
+  {"\\+", TK_OP},         // plus
   {"==", TK_EQ},        // equal
+  {"-", TK_OP},         // minus
+  {"\\*",TK_OP},        // multiply
+  {"/",TK_OP},          // divide
+  {"\\(",'('},          // left parenthesis
+  {"\\)",')'},          // right parenthesis 
+  {"0[xX][0-9a-fA-F]+", TK_INT}, // hexadecimal integer
+  {"[0-9]+", TK_INT},   // decimal integer
+  {"\\$[a-zA-Z]+", TK_REG}, // register
+  {"[a-zA-Z_][a-zA-Z0-9_]*", TK_VAR} // variable
+
 };
 
 #define NR_REGEX ARRLEN(rules)
 
+/*rules*/
 static regex_t re[NR_REGEX] = {};
 
 /* Rules are used for many times.
@@ -80,6 +97,7 @@ static bool make_token(char *e) {
   while (e[position] != '\0') {
     /* Try all rules one by one. */
     for (i = 0; i < NR_REGEX; i ++) {
+      /*从头开始匹配*/
       if (regexec(&re[i], e + position, 1, &pmatch, 0) == 0 && pmatch.rm_so == 0) {
         char *substr_start = e + position;
         int substr_len = pmatch.rm_eo;
@@ -95,6 +113,56 @@ static bool make_token(char *e) {
          */
 
         switch (rules[i].token_type) {
+          case TK_NOTYPE:
+            break;
+          case ')':
+            tokens[nr_token].type = ')';
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case '(':
+            tokens[nr_token].type = '(';
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_EQ:
+            tokens[nr_token].type = TK_EQ;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_OP:
+            tokens[nr_token].type = TK_OP;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_VAR:
+            tokens[nr_token].type = TK_VAR;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_REG:
+            tokens[nr_token].type = TK_REG;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_INT:
+            tokens[nr_token].type = TK_INT;
+            if(substr_len <= 32){
+              strncpy(tokens[nr_token].str, substr_start, substr_len);
+              tokens[nr_token].str[substr_len] = '\0';
+            }
+            else{
+              printf("integer too long at position %d\n%s\n%*.s^\n", position, e, position, "");
+              return false;
+            }
+            nr_token++;
+            break;
           default: TODO();
         }
 
