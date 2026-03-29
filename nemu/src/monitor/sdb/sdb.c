@@ -79,6 +79,7 @@ static int cmd_info(char *args){
     isa_reg_display();
   }else {
     printf("Error, we only support delivering the registers' infomation");
+    return 0;
   }
   return 0;
 }
