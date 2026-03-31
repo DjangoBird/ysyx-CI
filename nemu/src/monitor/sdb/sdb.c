@@ -18,11 +18,15 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #include "sdb.h"
+#include <utils.h>
+#include <memory/vaddr.h>
 
 static int is_batch_mode = false;
 
 void init_regex();
 void init_wp_pool();
+word_t expr(char *e, bool *success);
+void expr_highlight(char *e);
 
 /* We use the `readline' library to provide more flexibility to read from stdin. */
 static char* rl_gets() {
@@ -49,10 +53,85 @@ static int cmd_c(char *args) {
 
 
 static int cmd_q(char *args) {
+  nemu_state.state = NEMU_QUIT;
   return -1;
 }
 
 static int cmd_help(char *args);
+
+static int cmd_si(char *args) {
+  char *arg = strtok(NULL," ");
+  int steps = 0;
+  if(arg == NULL){
+    cpu_exec(1);
+    return 0;
+  }
+  sscanf(arg,"%d",&steps);
+  if(steps < -1){
+    /*-1 = MAX as cmd_c*/
+    printf("Error, N should be greater or equal to -1");
+    return 0;
+  }
+  cpu_exec(steps);
+  return 0;
+}
+
+static int cmd_info(char *args){
+  char *arg = strtok(NULL, " ");
+  
+  if(arg == NULL){
+    printf("Usage: info r\n");
+    return 0;
+  }
+
+  if(strcmp(arg,"r") == 0){
+    isa_reg_display();
+  }
+  return 0;
+}
+
+static int cmd_x(char *args){
+  char *N_str = strtok(NULL," ");
+  char *EXPR  = strtok(NULL," ");
+  
+  if(N_str == NULL || EXPR == NULL){
+    printf("Usage: x N EXPR");
+    return 0;
+  }
+
+  int N = 0;
+  vaddr_t addr;
+  sscanf(N_str,"%d",&N);
+  sscanf(EXPR,"%x",&addr);
+
+  for(int i = 0; i < N; i++){
+    word_t data = vaddr_read(addr,4);
+    printf("0x%08x: 0x%08x\n", addr, data);
+    addr += 4;
+  }
+  
+  return 0;
+}
+
+static int cmd_p(char *args){
+  if(args == NULL){
+    printf("Usage: p EXPR\n");
+    return 0;
+  }
+
+  // 先高亮显示表达式中的 token
+  expr_highlight(args);
+
+  bool success = true;
+  word_t result = expr(args, &success);
+  if(success){
+    printf("0x%08x\n", result);
+  } else {
+    printf("Invalid expression.\n");
+  }
+  
+  return 0;
+}
 
 static struct {
   const char *name;
@@ -64,7 +143,10 @@ static struct {
   { "q", "Exit NEMU", cmd_q },
 
   /* TODO: Add more commands */
-
+  { "si", "Single-step exection", cmd_si},
+  { "info", "Register detailed infomation", cmd_info},
+  { "x", "Scan memory", cmd_x },
+  { "p", "Evaluate expression", cmd_p }
 };
 
 #define NR_CMD ARRLEN(cmd_table)
