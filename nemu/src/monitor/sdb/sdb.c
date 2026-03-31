@@ -102,14 +102,20 @@ static int cmd_x(char *args){
   int N = 0;
   vaddr_t addr;
   sscanf(N_str,"%d",&N);
-  sscanf(EXPR,"%x",&addr);
+
+  bool success = true;
+  addr = expr(EXPR, &success);
+  if (!success) {
+  printf("Invalid expression: %s\n", EXPR);
+  return 0;
+  }
 
   for(int i = 0; i < N; i++){
     word_t data = vaddr_read(addr,4);
     printf("0x%08x: 0x%08x\n", addr, data);
     addr += 4;
   }
-  
+
   return 0;
 }
 
