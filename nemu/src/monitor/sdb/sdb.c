@@ -90,7 +90,7 @@ static int cmd_info(char *args){
   #ifdef CONFIG_WATCHPOINT
     print_watchpoints();
   #else
-    printf("Watchpoint feature is disabled (CONFIG_WATCHPOINT=n).\\n");
+    printf("Watchpoint feature is disabled (CONFIG_WATCHPOINT=n).\n");
   #endif
   }
   return 0;
@@ -128,7 +128,7 @@ static int cmd_x(char *args){
 // w EXPR : 创建一个监视点, 监视表达式 EXPR
 static int cmd_w(char *args) {
 #ifndef CONFIG_WATCHPOINT
-  printf("Watchpoint feature is disabled (CONFIG_WATCHPOINT=n).\\n");
+  printf("Watchpoint feature is disabled (CONFIG_WATCHPOINT=n).\n");
   return 0;
 #else
   if (args == NULL) {
@@ -165,7 +165,7 @@ static int cmd_w(char *args) {
 // d N : 删除编号为 N 的监视点
 static int cmd_d(char *args) {
 #ifndef CONFIG_WATCHPOINT
-  printf("Watchpoint feature is disabled (CONFIG_WATCHPOINT=n).\\n");
+  printf("Watchpoint feature is disabled (CONFIG_WATCHPOINT=n).\n");
   return 0;
 #else
   if (args == NULL) {
@@ -295,7 +295,9 @@ void sdb_mainloop() {
       }
     }
 
-    if (i == NR_CMD) { printf("Unknown command '%s'\n", cmd); }
+    if (i == NR_CMD) { 
+      printf("Unknown command '%s'\n", cmd); 
+    }
   }
 }
 
