@@ -80,12 +80,14 @@ static int cmd_info(char *args){
   char *arg = strtok(NULL, " ");
   
   if(arg == NULL){
-    printf("Usage: info r\n");
+    printf("Usage: info r|w\n");
     return 0;
   }
 
   if(strcmp(arg,"r") == 0){
     isa_reg_display();
+  } else if (strcmp(arg, "w") == 0) {
+    print_watchpoints();
   }
   return 0;
 }
@@ -114,6 +116,65 @@ static int cmd_x(char *args){
     word_t data = vaddr_read(addr,4);
     printf("0x%08x: 0x%08x\n", addr, data);
     addr += 4;
+  }
+
+  return 0;
+}
+
+// w EXPR : 创建一个监视点, 监视表达式 EXPR
+static int cmd_w(char *args) {
+  if (args == NULL) {
+    printf("Usage: w EXPR\n");
+    return 0;
+  }
+
+  // 去掉前导空格
+  while (*args == ' ' || *args == '\t') args++;
+  if (*args == '\0') {
+    printf("Usage: w EXPR\n");
+    return 0;
+  }
+
+  bool success = true;
+  word_t val = expr(args, &success);
+  if (!success) {
+    printf("Invalid expression: %s\n", args);
+    return 0;
+  }
+
+  WP *wp = new_wp();
+  strncpy(wp->expr, args, sizeof(wp->expr) - 1);
+  wp->expr[sizeof(wp->expr) - 1] = '\0';
+  wp->last_val = val;
+
+  printf("Watchpoint %d: %s\n", wp->NO, wp->expr);
+  printf("Initial value = 0x" FMT_WORD "\n", wp->last_val);
+
+  return 0;
+}
+
+// d N : 删除编号为 N 的监视点
+static int cmd_d(char *args) {
+  if (args == NULL) {
+    printf("Usage: d N\n");
+    return 0;
+  }
+
+  char *arg = strtok(NULL, " ");
+  if (arg == NULL) {
+    printf("Usage: d N\n");
+    return 0;
+  }
+
+  int no = 0;
+  if (sscanf(arg, "%d", &no) != 1) {
+    printf("Invalid watchpoint number: %s\n", arg);
+    return 0;
+  }
+
+  extern bool delete_watchpoint(int no);
+  if (!delete_watchpoint(no)) {
+    printf("No such watchpoint %d\n", no);
   }
 
   return 0;
@@ -152,7 +213,9 @@ static struct {
   { "si", "Single-step exection", cmd_si},
   { "info", "Register detailed infomation", cmd_info},
   { "x", "Scan memory", cmd_x },
-  { "p", "Evaluate expression", cmd_p }
+  { "p", "Evaluate expression", cmd_p },
+  { "w", "Set a watchpoint", cmd_w },
+  { "d", "Delete a watchpoint", cmd_d },
 };
 
 #define NR_CMD ARRLEN(cmd_table)
