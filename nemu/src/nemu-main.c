@@ -26,7 +26,8 @@ int is_exit_status_bad();
 
 int main(int argc, char *argv[]) {
 
-#ifndef CONFIG_TARGET_AM
+
+#ifdef CONFIG_TARGET_AM
   // 表达式批量测试模式: ./build/riscv32-nemu-interpreter expr-test
   if (argc == 2 && strcmp(argv[1], "expr-test") == 0) {
     init_regex();
