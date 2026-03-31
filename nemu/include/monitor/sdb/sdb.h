@@ -22,16 +22,13 @@
 word_t expr(char *e, bool *success);
 
 // 监视点结构体定义
-struct watchpoint {
+typedef struct watchpoint {
   int NO;                  // 编号
   struct watchpoint *next; // 链表指针
 
   char expr[256];          // 被监视的表达式字符串
   word_t last_val;         // 上一次求值得到的结果
-};
-
-// 监视点结构前向声明
-typedef struct watchpoint WP;
+} WP;
 
 // 监视点池相关接口
 void init_wp_pool(void);
@@ -43,5 +40,8 @@ void check_watchpoints(void);
 
 // 打印当前所有监视点信息, 供 `info w` 使用
 void print_watchpoints(void);
+
+// 删除编号为 no 的监视点, 成功返回 true
+bool delete_watchpoint(int no);
 
 #endif
