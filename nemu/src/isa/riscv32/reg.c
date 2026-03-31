@@ -24,6 +24,7 @@ const char *regs[] = {
 };
 
 void isa_reg_display() {
+  printf("PC \t %x \t %d\n", cpu.pc,cpu.pc);
   for (int i = 0; i < 32; i++){
     printf("%s \t%x \t %d\n",regs[i],cpu.gpr[i],cpu.gpr[i]);
   }
@@ -31,6 +32,11 @@ void isa_reg_display() {
 
 word_t isa_reg_str2val(const char *s, bool *success) {
   *success = false;
+
+  if(strcasecmp(s,"pc") == 0){
+    *success = true;
+    return cpu.pc;
+  }
 
   if (strcmp(s, "0") == 0 || strcmp(s, "$0") == 0) {
     *success = true;
