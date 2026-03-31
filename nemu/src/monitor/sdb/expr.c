@@ -60,7 +60,7 @@ static struct rule {
   {"\\)",')'},          // right parenthesis 
   {"0[xX][0-9a-fA-F]+", TK_INT}, // hexadecimal integer
   {"[0-9]+", TK_INT},   // decimal integer
-  {"\\$[a-zA-Z]+", TK_REG}, // register
+  {"\\$[a-zA-Z0-9]+", TK_REG}, // register: 允许字母+数字，如 $pc, $ra, $t0, $x10
   {"[a-zA-Z_][a-zA-Z0-9_]*", TK_VAR}, // variable
 };
 
@@ -314,6 +314,7 @@ static word_t eval(int p, int q, bool *success) {
       // 跳过前导的 '$'
       word_t val = isa_reg_str2val(t->str + 1, &ok);
       if (!ok) {
+        Log("Invalid register '%s' in expr()\n", t->str);
         *success = false;
         return 0;
       }
