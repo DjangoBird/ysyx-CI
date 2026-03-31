@@ -19,6 +19,7 @@
  * Type 'man regex' for more information about POSIX regex functions.
  */
 #include <regex.h>
+#include <memory/vaddr.h>
 
 // ANSI 颜色代码用于终端高亮
 #define ANSI_COLOR_RESET   "\033[0m"
@@ -34,7 +35,8 @@ enum {
   TK_OP,
   TK_REG,
   TK_VAR,
-  TK_NEG
+  TK_NEG,
+  TK_DEREF
 
   /* TODO: Add more token types */
 
@@ -199,6 +201,21 @@ static bool make_token(char *e) {
         }
       }
     }
+
+    /* 识别一元解引用：
+     * 根据前一个 token 判断,如果 '*' 出现在表达式开头，或在非数值/寄存器/变量/右括号之后，
+     * 则将其从二元乘号(TK_OP)改为一元(TK_DEREF)
+     */
+    if (tokens[j].type == TK_OP && tokens[j].str[0] == '*') {
+      if (j == 0) {
+        tokens[j].type = TK_DEREF;
+      } else {
+        int prev_type = tokens[j - 1].type;
+        if (!(prev_type == TK_INT || prev_type == TK_REG || prev_type == TK_VAR || prev_type == ')')) {
+          tokens[j].type = TK_DEREF;
+        }
+      }
+    }
   }
 
   return true;
@@ -251,8 +268,8 @@ static int find_main_op(int p, int q) {
       continue;
     }
 
-    if (type == TK_NEG) {
-      // 一元负号不作为本层主运算符参与竞争
+    if (type == TK_NEG || type == TK_DEREF) {
+      // 一元运算符不作为本层主运算符参与竞争
       continue;
     }
 
@@ -332,13 +349,23 @@ static word_t eval(int p, int q, bool *success) {
 
   int op = find_main_op(p, q);
   if (op < 0) {
-    // 没有找到二元运算符，可能是以一元负号开头的表达式
+    // 没有找到二元运算符，可能是以一元运算符开头的表达式
     if (tokens[p].type == TK_NEG) {
       word_t val = eval(p + 1, q, success);
       if (!*success) {
         return 0;
       }
       return -val;
+    }
+
+    if (tokens[p].type == TK_DEREF) {
+      // 跳过前导'*',对后续表达式求值得到地址，然后解引用
+      word_t addr = eval(p + 1, q, success);
+      if (!*success) {
+        return 0;
+      }
+      // 解引用按一个 word 读取内存
+      return vaddr_read((vaddr_t)addr, sizeof(word_t));
     }
 
     *success = false;
