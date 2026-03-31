@@ -290,5 +290,5 @@ void init_sdb() {
   init_regex();
 
   /* Initialize the watchpoint pool. */
-  IFDEF(CONFIG_WATCHPOINT, init_wp_pool());
+  init_wp_pool();
 }
