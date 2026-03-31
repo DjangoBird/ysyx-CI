@@ -36,7 +36,19 @@ enum {
   TK_REG,
   TK_VAR,
   TK_NEG,
-  TK_DEREF
+  TK_DEREF,
+  TK_NEQ,
+  TK_AND,
+  TK_OR,
+  TK_LE,
+  TK_GE,
+  TK_LT,
+  TK_GT,
+  TK_BITAND,
+  TK_BITOR,
+  TK_BITXOR,
+  TK_NOT,
+  TK_BITNOT
 
   /* TODO: Add more token types */
 
@@ -53,11 +65,23 @@ static struct rule {
 
   {" +", TK_NOTYPE},    // spaces
   {"\\t",TK_NOTYPE},    // tab
-  {"\\+", TK_OP},         // plus
   {"==", TK_EQ},        // equal
+  {"!=", TK_NEQ},       // not equal
+  {"<=", TK_LE},        // less or equal
+  {">=", TK_GE},        // greater or equal
+  {"<",  TK_LT},        // less than
+  {">",  TK_GT},        // greater than
+  {"&&", TK_AND},       // logical and
+  {"\\|\\|", TK_OR},    // logical or
+  {"\\+", TK_OP},         // plus
   {"-", TK_OP},         // minus
   {"\\*",TK_OP},        // multiply
   {"/",TK_OP},          // divide
+  {"&", TK_BITAND},     // bitwise and
+  {"\\|", TK_BITOR},   // bitwise or
+  {"\\^", TK_BITXOR},  // bitwise xor
+  {"!", TK_NOT},        // logical not
+  {"~", TK_BITNOT},     // bitwise not
   {"\\(",'('},          // left parenthesis
   {"\\)",')'},          // right parenthesis 
   {"0[xX][0-9a-fA-F]+", TK_INT}, // hexadecimal integer
@@ -124,6 +148,78 @@ static bool make_token(char *e) {
 
         switch (rules[i].token_type) {
           case TK_NOTYPE:
+            break;
+          case TK_NEQ:
+            tokens[nr_token].type = TK_NEQ;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_AND:
+            tokens[nr_token].type = TK_AND;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_OR:
+            tokens[nr_token].type = TK_OR;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_LE:
+            tokens[nr_token].type = TK_LE;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_GE:
+            tokens[nr_token].type = TK_GE;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_LT:
+            tokens[nr_token].type = TK_LT;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_GT:
+            tokens[nr_token].type = TK_GT;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_BITAND:
+            tokens[nr_token].type = TK_BITAND;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_BITOR:
+            tokens[nr_token].type = TK_BITOR;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_BITXOR:
+            tokens[nr_token].type = TK_BITXOR;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_NOT:
+            tokens[nr_token].type = TK_NOT;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
+            break;
+          case TK_BITNOT:
+            tokens[nr_token].type = TK_BITNOT;
+            strncpy(tokens[nr_token].str, substr_start, substr_len);
+            tokens[nr_token].str[substr_len] = '\0';
+            nr_token++;
             break;
           case ')':
             tokens[nr_token].type = ')';
@@ -280,15 +376,29 @@ static int find_main_op(int p, int q) {
 
     int pri = -1;
 
-    if (type == TK_EQ) {
-      pri = 1; // 最低优先级
-    } else if (type == TK_OP) {
-      char c = tokens[i].str[0];
-      if (c == '+' || c == '-') {
-        pri = 2;
-      } else if (c == '*' || c == '/') {
-        pri = 3;
+    switch (type) {
+      case TK_OR:      pri = 1; break; // || 最低
+      case TK_AND:     pri = 2; break; // &&
+      case TK_EQ:
+      case TK_NEQ:     pri = 3; break; // == !=
+      case TK_LT:
+      case TK_LE:
+      case TK_GT:
+      case TK_GE:      pri = 4; break; // < <= > >=
+      case TK_BITOR:   pri = 5; break; // |
+      case TK_BITXOR:  pri = 6; break; // ^
+      case TK_BITAND:  pri = 7; break; // &
+      case TK_OP: {
+        char c = tokens[i].str[0];
+        if (c == '+' || c == '-') {
+          pri = 8;        // + -
+        } else if (c == '*' || c == '/') {
+          pri = 9;        // * /
+        }
+        break;
       }
+      default:
+        break;
     }
 
     if (pri != -1 && pri <= min_pri) {
@@ -358,6 +468,22 @@ static word_t eval(int p, int q, bool *success) {
       return -val;
     }
 
+    if (tokens[p].type == TK_NOT) {
+      word_t val = eval(p + 1, q, success);
+      if (!*success) {
+        return 0;
+      }
+      return !val;
+    }
+
+    if (tokens[p].type == TK_BITNOT) {
+      word_t val = eval(p + 1, q, success);
+      if (!*success) {
+        return 0;
+      }
+      return ~val;
+    }
+
     if (tokens[p].type == TK_DEREF) {
       // 跳过前导'*',对后续表达式求值得到地址，然后解引用
       word_t addr = eval(p + 1, q, success);
@@ -381,30 +507,39 @@ static word_t eval(int p, int q, bool *success) {
     return 0;
   }
 
-  if (tokens[op].type == TK_EQ) {
-    return val1 == val2;
-  }
-
-  if (tokens[op].type == TK_OP) {
-    char c = tokens[op].str[0];
-    switch (c) {
-      case '+': return val1 + val2;
-      case '-': return val1 - val2;
-      case '*': return val1 * val2;
-      case '/':
-        if (val2 == 0) {
-          Log("Division by zero in expr()\n");
-          *success = false;
-          return 0;
-        }
-        return val1 / val2;
-      default:
-        assert(0);
+  switch (tokens[op].type) {
+    case TK_EQ:    return val1 == val2;
+    case TK_NEQ:   return val1 != val2;
+    case TK_LT:    return val1 <  val2;
+    case TK_LE:    return val1 <= val2;
+    case TK_GT:    return val1 >  val2;
+    case TK_GE:    return val1 >= val2;
+    case TK_AND:   return (val1 != 0) && (val2 != 0);
+    case TK_OR:    return (val1 != 0) || (val2 != 0);
+    case TK_BITAND:return val1 &  val2;
+    case TK_BITOR: return val1 |  val2;
+    case TK_BITXOR:return val1 ^  val2;
+    case TK_OP: {
+      char c = tokens[op].str[0];
+      switch (c) {
+        case '+': return val1 + val2;
+        case '-': return val1 - val2;
+        case '*': return val1 * val2;
+        case '/':
+          if (val2 == 0) {
+            Log("Division by zero in expr()\n");
+            *success = false;
+            return 0;
+          }
+          return val1 / val2;
+        default:
+          assert(0);
+      }
     }
+    default:
+      *success = false;
+      return 0;
   }
-
-  *success = false;
-  return 0;
 }
 
 word_t expr(char *e, bool *success) {
@@ -437,8 +572,20 @@ static void print_token_with_color(int type, const char *s, int len) {
       color = ANSI_COLOR_VAR;
       break;
     case TK_EQ:
+    case TK_NEQ:
     case TK_OP:
     case TK_NEG:
+    case TK_AND:
+    case TK_OR:
+    case TK_LE:
+    case TK_GE:
+    case TK_LT:
+    case TK_GT:
+    case TK_BITAND:
+    case TK_BITOR:
+    case TK_BITXOR:
+    case TK_NOT:
+    case TK_BITNOT:
       color = ANSI_COLOR_OP;
       break;
     default:
