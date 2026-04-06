@@ -153,6 +153,7 @@ static int decode_exec(Decode *s) {
     if (b == 0) {
       R(rd) = (word_t)-1;
     } else if (a == (sword_t)0x80000000 && b == -1) {
+      //溢出保持原值
       R(rd) = (word_t)0x80000000;
     } else {
       R(rd) = (word_t)(a / b);
