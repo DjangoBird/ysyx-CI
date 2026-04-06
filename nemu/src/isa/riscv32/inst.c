@@ -73,7 +73,7 @@ static int decode_exec(Decode *s) {
   // shift-immediate (only lower 5 bits of imm used)
   INSTPAT("0000000 ????? ????? 001 ????? 00100 11", slli   , I, R(rd) = src1 << (imm & 0x1f));
   INSTPAT("0000000 ????? ????? 101 ????? 00100 11", srli   , I, R(rd) = src1 >> (imm & 0x1f));
-  INSTPAT("0100000 ????? ????? 101 ????? 00100 11", srai   , I, R(rd) = (word_t)((sword_t)src1 >> (imm & 0x1f)););
+  INSTPAT("0100000 ????? ????? 101 ????? 00100 11", srai   , I, R(rd) = (word_t)((sword_t)src1 >> (imm & 0x1f)));
   
   // J-type jump and link
   INSTPAT("??????? ????? ????? ??? ????? 11011 11", jal    , N, {
@@ -119,9 +119,74 @@ static int decode_exec(Decode *s) {
   INSTPAT("0000000 ????? ????? 011 ????? 01100 11", sltu   , R, R(rd) = src1 < src2);
   INSTPAT("0000000 ????? ????? 100 ????? 01100 11", xor    , R, R(rd) = src1 ^ src2);
   INSTPAT("0000000 ????? ????? 101 ????? 01100 11", srl    , R, R(rd) = src1 >> (src2 & 0x1f));
-  INSTPAT("0100000 ????? ????? 101 ????? 01100 11", sra    , R, R(rd) = (word_t)((sword_t)src1 >> (src2 & 0x1f)););
+  INSTPAT("0100000 ????? ????? 101 ????? 01100 11", sra    , R, R(rd) = (word_t)((sword_t)src1 >> (src2 & 0x1f)));
   INSTPAT("0000000 ????? ????? 110 ????? 01100 11", or     , R, R(rd) = src1 | src2);
   INSTPAT("0000000 ????? ????? 111 ????? 01100 11", and    , R, R(rd) = src1 & src2);
+  // RV32M multiply/divide
+  INSTPAT("0000001 ????? ????? 000 ????? 01100 11", mul    , R, {
+    int64_t a = (int64_t)(sword_t)src1;
+    int64_t b = (int64_t)(sword_t)src2;
+    int64_t p = a * b;
+    R(rd) = (word_t)p;
+  });
+  INSTPAT("0000001 ????? ????? 001 ????? 01100 11", mulh   , R, {
+    int64_t a = (int64_t)(sword_t)src1;
+    int64_t b = (int64_t)(sword_t)src2;
+    int64_t p = a * b;
+    R(rd) = (word_t)(p >> 32);
+  });
+  INSTPAT("0000001 ????? ????? 010 ????? 01100 11", mulhsu , R, {
+    int64_t  a = (int64_t)(sword_t)src1;
+    uint64_t b = (uint64_t)src2;
+    int64_t  p = a * (int64_t)b;
+    R(rd) = (word_t)(p >> 32);
+  });
+  INSTPAT("0000001 ????? ????? 011 ????? 01100 11", mulhu  , R, {
+    uint64_t a = (uint64_t)src1;
+    uint64_t b = (uint64_t)src2;
+    uint64_t p = a * b;
+    R(rd) = (word_t)(p >> 32);
+  });
+  INSTPAT("0000001 ????? ????? 100 ????? 01100 11", div    , R, {
+    sword_t a = (sword_t)src1;
+    sword_t b = (sword_t)src2;
+    if (b == 0) {
+      R(rd) = (word_t)-1;
+    } else if (a == (sword_t)0x80000000 && b == -1) {
+      R(rd) = (word_t)0x80000000;
+    } else {
+      R(rd) = (word_t)(a / b);
+    }
+  });
+  INSTPAT("0000001 ????? ????? 101 ????? 01100 11", divu   , R, {
+    word_t a = src1;
+    word_t b = src2;
+    if (b == 0) {
+      R(rd) = (word_t)-1;
+    } else {
+      R(rd) = a / b;
+    }
+  });
+  INSTPAT("0000001 ????? ????? 110 ????? 01100 11", rem    , R, {
+    sword_t a = (sword_t)src1;
+    sword_t b = (sword_t)src2;
+    if (b == 0) {
+      R(rd) = (word_t)a;
+    } else if (a == (sword_t)0x80000000 && b == -1) {
+      R(rd) = 0;
+    } else {
+      R(rd) = (word_t)(a % b);
+    }
+  });
+  INSTPAT("0000001 ????? ????? 111 ????? 01100 11", remu  , R, {
+    word_t a = src1;
+    word_t b = src2;
+    if (b == 0) {
+      R(rd) = a;
+    } else {
+      R(rd) = a % b;
+    }
+  });
   
   // U-type load upper imm
   INSTPAT("??????? ????? ????? ??? ????? 01101 11", lui    , U, R(rd) = imm);
