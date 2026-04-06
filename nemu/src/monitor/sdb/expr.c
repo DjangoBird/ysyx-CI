@@ -63,30 +63,30 @@ static struct rule {
    * Pay attention to the precedence level of different rules.
    */
 
-  {" +", TK_NOTYPE},    // spaces
-  {"\\t",TK_NOTYPE},    // tab
-  {"==", TK_EQ},        // equal
-  {"!=", TK_NEQ},       // not equal
-  {"<=", TK_LE},        // less or equal
-  {">=", TK_GE},        // greater or equal
-  {"<",  TK_LT},        // less than
-  {">",  TK_GT},        // greater than
-  {"&&", TK_AND},       // logical and
-  {"\\|\\|", TK_OR},    // logical or
-  {"\\+", TK_OP},         // plus
-  {"-", TK_OP},         // minus
-  {"\\*",TK_OP},        // multiply
-  {"/",TK_OP},          // divide
-  {"&", TK_BITAND},     // bitwise and
-  {"\\|", TK_BITOR},   // bitwise or
-  {"\\^", TK_BITXOR},  // bitwise xor
-  {"!", TK_NOT},        // logical not
-  {"~", TK_BITNOT},     // bitwise not
-  {"\\(",'('},          // left parenthesis
-  {"\\)",')'},          // right parenthesis 
-  {"0[xX][0-9a-fA-F]+", TK_INT}, // hexadecimal integer
-  {"[0-9]+", TK_INT},   // decimal integer
-  {"\\$[a-zA-Z0-9]+", TK_REG}, // register: 允许字母+数字，如 $pc, $ra, $t0, $x10
+  {" +", TK_NOTYPE},                   // spaces
+  {"\\t",TK_NOTYPE},                   // tab
+  {"==", TK_EQ},                       // equal
+  {"!=", TK_NEQ},                      // not equal
+  {"<=", TK_LE},                       // less or equal
+  {">=", TK_GE},                       // greater or equal
+  {"<",  TK_LT},                       // less than
+  {">",  TK_GT},                       // greater than
+  {"&&", TK_AND},                      // logical and
+  {"\\|\\|", TK_OR},                   // logical or
+  {"\\+", TK_OP},                     // plus
+  {"-", TK_OP},                       // minus
+  {"\\*",TK_OP},                      // multiply
+  {"/",TK_OP},                        // divide
+  {"&", TK_BITAND},                   // bitwise and
+  {"\\|", TK_BITOR},                  // bitwise or
+  {"\\^", TK_BITXOR},                 // bitwise xor
+  {"!", TK_NOT},                      // logical not
+  {"~", TK_BITNOT},                   // bitwise not
+  {"\\(",'('},                        // left parenthesis
+  {"\\)",')'},                        // right parenthesis 
+  {"0[xX][0-9a-fA-F]+", TK_INT},      // hexadecimal integer
+  {"[0-9]+", TK_INT},                 // decimal integer
+  {"\\$[a-zA-Z0-9]+", TK_REG},        // register: 允许字母+数字，如 $pc, $ra, $t0, $x10
   {"[a-zA-Z_][a-zA-Z0-9_]*", TK_VAR}, // variable
 };
 
