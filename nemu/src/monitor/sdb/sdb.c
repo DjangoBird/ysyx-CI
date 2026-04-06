@@ -87,7 +87,11 @@ static int cmd_info(char *args){
   if(strcmp(arg,"r") == 0){
     isa_reg_display();
   } else if (strcmp(arg, "w") == 0) {
+  #ifdef CONFIG_WATCHPOINT
     print_watchpoints();
+  #else
+    printf("Watchpoint feature is disabled (CONFIG_WATCHPOINT=n).\n");
+  #endif
   }
   return 0;
 }
@@ -123,6 +127,10 @@ static int cmd_x(char *args){
 
 // w EXPR : 创建一个监视点, 监视表达式 EXPR
 static int cmd_w(char *args) {
+#ifndef CONFIG_WATCHPOINT
+  printf("Watchpoint feature is disabled (CONFIG_WATCHPOINT=n).\n");
+  return 0;
+#else
   if (args == NULL) {
     printf("Usage: w EXPR\n");
     return 0;
@@ -151,10 +159,15 @@ static int cmd_w(char *args) {
   printf("Initial value = 0x" FMT_WORD "\n", wp->last_val);
 
   return 0;
+#endif
 }
 
 // d N : 删除编号为 N 的监视点
 static int cmd_d(char *args) {
+#ifndef CONFIG_WATCHPOINT
+  printf("Watchpoint feature is disabled (CONFIG_WATCHPOINT=n).\n");
+  return 0;
+#else
   if (args == NULL) {
     printf("Usage: d N\n");
     return 0;
@@ -178,6 +191,7 @@ static int cmd_d(char *args) {
   }
 
   return 0;
+#endif
 }
 
 static int cmd_p(char *args){
@@ -281,7 +295,9 @@ void sdb_mainloop() {
       }
     }
 
-    if (i == NR_CMD) { printf("Unknown command '%s'\n", cmd); }
+    if (i == NR_CMD) { 
+      printf("Unknown command '%s'\n", cmd); 
+    }
   }
 }
 
@@ -290,5 +306,5 @@ void init_sdb() {
   init_regex();
 
   /* Initialize the watchpoint pool. */
-  init_wp_pool();
+  IFDEF(CONFIG_WATCHPOINT, init_wp_pool());
 }

@@ -40,8 +40,8 @@ static void trace_and_difftest(Decode *_this, vaddr_t dnpc) {
   if (g_print_step) { IFDEF(CONFIG_ITRACE, puts(_this->logbuf)); }
   IFDEF(CONFIG_DIFFTEST, difftest_step(_this->pc, dnpc));
 
-  // 每执行完一条指令后检查监视点
-  check_watchpoints();
+  // 每执行完一条指令后检查监视点(可通过 CONFIG_WATCHPOINT 开关控制)
+  IFDEF(CONFIG_WATCHPOINT, check_watchpoints());
 }
 
 static void exec_once(Decode *s, vaddr_t pc) {
