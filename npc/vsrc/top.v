@@ -1,25 +1,29 @@
+/* verilator lint_off UNUSEDSIGNAL */
+/* verilator lint_off PINCONNECTEMPTY */
+
 module top(
     input        clk,    // 时钟
     input        rst,    // 复位，高电平有效
     output [7:0] led     // 8 个 LED
 );
 
-  reg [23:0] cnt;        // 分频计数器，控制流水灯速度
-  reg [7:0]  pattern;    // 当前点亮的灯
+  // 实例化最小 RV32E minirv 处理器
+  wire [31:0] dbg_pc;
+  wire [31:0] dbg_x1;
+  wire [31:0] dbg_x2;
 
-  always @(posedge clk or posedge rst) begin
-    if (rst) begin
-      cnt     <= 24'd0;
-      pattern <= 8'b0000_0001;   // 上电后先亮 LD0
-    end else begin
-      cnt <= cnt + 1;
-      // 计数器溢出时移动一次
-      if (cnt == 24'd0) begin
-        pattern <= {pattern[6:0], pattern[7]};  // 左移循环
-      end
-    end
-  end
+  minirv_core u_core (
+    .clk    (clk),
+    .rst    (rst),
+    .dbg_pc (dbg_pc),
+    .dbg_x1 (dbg_x1),
+    .dbg_x2 (dbg_x2)
+  );
 
-  assign led = pattern;
+  // 将 PC 的低 8 位接到 LED 上
+  assign led = dbg_pc[7:0];
 
 endmodule
+
+/* verilator lint_on UNUSEDSIGNAL */
+/* verilator lint_on PINCONNECTEMPTY */
