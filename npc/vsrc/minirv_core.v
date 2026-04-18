@@ -1,21 +1,34 @@
 // Minimal single-cycle RV32E (minirv) core
-// PC initial value = 0
+// PC initial value = 0x80000000
 // 16 GPRs (x0-x15), x0 hard-wired to 0
-// Supported instructions: add, addi, lui, lw, lbu, sw, sb, jalr
+// Supported instructions: add, addi, lui, lw, lbu, sw, sb, jalr, ebreak
 // Other ISA details follow RV32I
 
-/* verilator lint_off WIDTHTRUNC */
-/* verilator lint_off UNUSEDSIGNAL */
-/* verilator lint_off CASEINCOMPLETE */
+import "DPI-C" function void npc_ebreak(input int pc, input int code);
 
 module minirv_core (
     input  wire         clk,
     input  wire         rst,
 
-    // simple debug observation ports (optional)
-    output wire [31:0]  dbg_pc,
-    output wire [31:0]  dbg_x1,
-    output wire [31:0]  dbg_x2
+  // instruction memory interface
+  output wire [31:0]  imem_addr,
+  input  wire [31:0]  imem_rdata,
+
+  // data memory interface
+  output reg          dmem_valid,
+  output reg          dmem_we,
+  output reg  [3:0]   dmem_wmask,
+  output reg  [31:0]  dmem_addr,
+  output reg  [31:0]  dmem_wdata,
+  input  wire [31:0]  dmem_rdata,
+
+  // trap interface
+  output reg          trap,
+  output reg  [31:0]  trap_code,
+
+  // debug observation port
+  output wire [31:0]  dbg_pc,
+  output wire [31:0]  dbg_x1
 );
 
   // -------------------------------
@@ -27,51 +40,25 @@ module minirv_core (
   integer i;
 
   // -------------------------------
-  // Simple instruction / data memories (internal)
-  // -------------------------------
-  // For simplicity, we model separate I/D memories.
-  // In practice you may want to expose a bus interface instead.
-
-  localparam IMEM_WORDS = 1024;   // 4KB instruction memory
-  localparam DMEM_BYTES = 4096;   // 4KB data memory
-
-  reg [31:0] imem[0:IMEM_WORDS-1];
-  reg [7:0]  dmem[0:DMEM_BYTES-1];
-
-  // optional: initialize instruction/data memory
-  integer j;
-  initial begin
-    // clear memories to 0 so that default instruction is NOP (addi x0,x0,0)
-    for (j = 0; j < IMEM_WORDS; j = j + 1) begin
-      imem[j] = 32'b0;
-    end
-    for (j = 0; j < DMEM_BYTES; j = j + 1) begin
-      dmem[j] = 8'b0;
-    end
-    // 如果需要加载程序，可取消下面一行注释，并提供 prog.hex
-    // $readmemh("prog.hex", imem);
-  end
-
-  // -------------------------------
   // Instruction Fetch
   // -------------------------------
   wire [31:0] instr;
   wire [31:0] pc_next_seq = pc + 32'd4;
 
-  // word-aligned fetch (ignore最低2位，使用 10bit 下标访问 1024word 的 imem)
-  assign instr = imem[pc[11:2]];
+  assign imem_addr = pc;
+  assign instr = imem_rdata;
 
   // -------------------------------
   // Decode fields (RV32I encoding)
   // -------------------------------
   wire [6:0] opcode = instr[6:0];
-  wire [4:0] rd_raw  = instr[11:7];
+  wire [4:0] rd_raw = instr[11:7];
   wire [2:0] funct3 = instr[14:12];
   wire [4:0] rs1_raw = instr[19:15];
   wire [4:0] rs2_raw = instr[24:20];
   wire [6:0] funct7 = instr[31:25];
 
-  // RV32E uses only 16 registers: index low 4 bits
+  // RV32E uses only 16 registers
   wire [3:0] rd_idx  = rd_raw[3:0];
   wire [3:0] rs1_idx = rs1_raw[3:0];
   wire [3:0] rs2_idx = rs2_raw[3:0];
@@ -108,21 +95,21 @@ module minirv_core (
   reg [3:0]  wb_idx;
   reg [31:0] wb_data;
 
-  // Memory access signals
-  reg        mem_we;
-  reg        mem_re;
-  reg [31:0] mem_addr;
-  reg [31:0] mem_wdata;
-  wire [31:0] mem_rdata_word;
-  wire [7:0]  mem_rdata_byte;
+  wire [31:0] load_addr = rs1_val + imm_i;
+  wire [31:0] store_addr = rs1_val + imm_s;
+  wire [31:0] load_word_addr = {load_addr[31:2], 2'b00};
+  wire [31:0] store_word_addr = {store_addr[31:2], 2'b00};
+  wire [1:0] load_byte_off = load_addr[1:0];
+  wire [7:0] load_byte = (load_byte_off == 2'b00) ? dmem_rdata[7:0] :
+                         (load_byte_off == 2'b01) ? dmem_rdata[15:8] :
+                         (load_byte_off == 2'b10) ? dmem_rdata[23:16] :
+                                                   dmem_rdata[31:24];
 
-  // Combinational read from data memory (little-endian)
-  assign mem_rdata_word = { dmem[mem_addr + 32'd3],
-                            dmem[mem_addr + 32'd2],
-                            dmem[mem_addr + 32'd1],
-                            dmem[mem_addr + 32'd0] };
-
-  assign mem_rdata_byte = dmem[mem_addr];
+  wire is_ebreak = (opcode == 7'b1110011) &&
+                   (funct3 == 3'b000) &&
+                   (rs1_raw == 5'd0) &&
+                   (rd_raw == 5'd0) &&
+                   (instr[31:20] == 12'h001);
 
   // Next PC
   reg [31:0] pc_next;
@@ -133,17 +120,22 @@ module minirv_core (
     wb_idx  = rd_idx;
     wb_data = 32'b0;
 
-    mem_we   = 1'b0;
-    mem_re   = 1'b0;
-    mem_addr = 32'b0;
-    mem_wdata = 32'b0;
+    dmem_valid = 1'b0;
+    dmem_we    = 1'b0;
+    dmem_wmask = 4'b0000;
+    dmem_addr  = 32'b0;
+    dmem_wdata = 32'b0;
+
+    trap = 1'b0;
+    trap_code = 32'b0;
 
     pc_next = pc_next_seq;
 
     case (opcode)
       OPCODE_OP: begin
         // add: funct3=000, funct7=0000000
-        if (funct3 == F3_ADD_SUB && funct7 == 7'b0000000) begin
+        if (!rd_raw[4] && !rs1_raw[4] && !rs2_raw[4] &&
+            funct3 == F3_ADD_SUB && funct7 == 7'b0000000) begin
           wb_en   = (rd_idx != 4'd0);
           wb_data = rs1_val + rs2_val;
         end
@@ -151,7 +143,7 @@ module minirv_core (
 
       OPCODE_OP_IMM: begin
         // addi: funct3=000
-        if (funct3 == F3_ADD_SUB) begin
+        if (!rd_raw[4] && !rs1_raw[4] && funct3 == F3_ADD_SUB) begin
           wb_en   = (rd_idx != 4'd0);
           wb_data = rs1_val + imm_i;
         end
@@ -159,52 +151,92 @@ module minirv_core (
 
       OPCODE_LUI: begin
         // lui
-        wb_en   = (rd_idx != 4'd0);
-        wb_data = imm_u;
+        if (!rd_raw[4]) begin
+          wb_en   = (rd_idx != 4'd0);
+          wb_data = imm_u;
+        end
       end
 
       OPCODE_LOAD: begin
         // lw, lbu
-        mem_addr = rs1_val + imm_i;
-        case (funct3)
-          F3_LW: begin
-            // lw
-            mem_re = 1'b1;
-            wb_en  = (rd_idx != 4'd0);
-            wb_data = mem_rdata_word;
-          end
-          F3_LBU: begin
-            // lbu
-            mem_re = 1'b1;
-            wb_en  = (rd_idx != 4'd0);
-            wb_data = {24'b0, mem_rdata_byte};
-          end
-        endcase
+        if (!rd_raw[4] && !rs1_raw[4]) begin
+          dmem_valid = 1'b1;
+          dmem_we = 1'b0;
+          dmem_addr = load_word_addr;
+          case (funct3)
+            F3_LW: begin
+              // lw
+              wb_en  = (rd_idx != 4'd0);
+              wb_data = dmem_rdata;
+            end
+            F3_LBU: begin
+              // lbu
+              wb_en  = (rd_idx != 4'd0);
+              wb_data = {24'b0, load_byte};
+            end
+            default: begin
+            end
+          endcase
+        end
       end
 
       OPCODE_STORE: begin
         // sw, sb
-        mem_addr = rs1_val + imm_s;
-        case (funct3)
-          F3_SW: begin
-            mem_we   = 1'b1;
-            mem_wdata = rs2_val;
-          end
-          F3_SB: begin
-            mem_we   = 1'b1;
-            mem_wdata = {24'b0, rs2_val[7:0]};
-          end
-        endcase
+        if (!rs1_raw[4] && !rs2_raw[4]) begin
+          dmem_valid = 1'b1;
+          dmem_we = 1'b1;
+          dmem_addr = store_word_addr;
+          case (funct3)
+            F3_SW: begin
+              dmem_wmask = 4'b1111;
+              dmem_wdata = rs2_val;
+            end
+            F3_SB: begin
+              case (store_addr[1:0])
+                2'b00: begin
+                  dmem_wmask = 4'b0001;
+                  dmem_wdata = {24'b0, rs2_val[7:0]};
+                end
+                2'b01: begin
+                  dmem_wmask = 4'b0010;
+                  dmem_wdata = {16'b0, rs2_val[7:0], 8'b0};
+                end
+                2'b10: begin
+                  dmem_wmask = 4'b0100;
+                  dmem_wdata = {8'b0, rs2_val[7:0], 16'b0};
+                end
+                default: begin
+                  dmem_wmask = 4'b1000;
+                  dmem_wdata = {rs2_val[7:0], 24'b0};
+                end
+              endcase
+            end
+            default: begin
+              dmem_valid = 1'b0;
+              dmem_we = 1'b0;
+              dmem_wmask = 4'b0000;
+            end
+          endcase
+        end
       end
 
       OPCODE_JALR: begin
         // jalr: rd, rs1, imm_i
-        if (funct3 == 3'b000) begin
+        if (!rd_raw[4] && !rs1_raw[4] && funct3 == 3'b000) begin
           // link register gets next sequential PC
           wb_en   = (rd_idx != 4'd0);
           wb_data = pc_next_seq;
           // target: (rs1 + imm_i) & ~1
           pc_next = (rs1_val + imm_i) & ~32'b1;
+        end
+      end
+
+      7'b1110011: begin
+        if (is_ebreak) begin
+          trap = 1'b1;
+          trap_code = regs[10];
+          npc_ebreak(pc, regs[10]);
+          pc_next = pc;
         end
       end
 
@@ -219,7 +251,7 @@ module minirv_core (
   // -------------------------------
   always @(posedge clk or posedge rst) begin
     if (rst) begin
-      pc <= 32'b0;
+      pc <= 32'h8000_0000;
       for (i = 0; i < 16; i = i + 1) begin
         regs[i] <= 32'b0;
       end
@@ -231,21 +263,6 @@ module minirv_core (
       if (wb_en && wb_idx != 4'd0) begin
         regs[wb_idx] <= wb_data;
       end
-
-      // Data memory write (little-endian)
-      if (mem_we) begin
-        // sw / sb based on funct3 already encoded in mem_wdata
-        // For sw, mem_wdata holds full word; for sb, only low byte is used
-        if (funct3 == F3_SW) begin
-          // write 4 bytes
-          dmem[mem_addr + 32'd0] <= mem_wdata[7:0];
-          dmem[mem_addr + 32'd1] <= mem_wdata[15:8];
-          dmem[mem_addr + 32'd2] <= mem_wdata[23:16];
-          dmem[mem_addr + 32'd3] <= mem_wdata[31:24];
-        end else if (funct3 == F3_SB) begin
-          dmem[mem_addr] <= mem_wdata[7:0];
-        end
-      end
     end
   end
 
@@ -254,10 +271,5 @@ module minirv_core (
   // -------------------------------
   assign dbg_pc = pc;
   assign dbg_x1 = regs[1];
-  assign dbg_x2 = regs[2];
 
 endmodule
-
-/* verilator lint_on WIDTHTRUNC */
-/* verilator lint_on UNUSEDSIGNAL */
-/* verilator lint_on CASEINCOMPLETE */

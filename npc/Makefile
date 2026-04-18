@@ -46,7 +46,7 @@ $(BIN): $(VSRCS) $(CSRCS) $(NVBOARD_ARCHIVE)
 
 # ========== 运行 ==========
 run: $(BIN)
-	@$^
+	@$^ $(IMG)
 
 sim: run
 	$(call git_commit, "sim RTL")
