@@ -12,6 +12,8 @@ static uint32_t trap_pc = 0;
 static uint32_t trap_code = 0;
 static bool trace_en = false;
 static uint64_t cycle_cnt = 0;
+static uint32_t trace_pc_lo = 0;
+static uint32_t trace_pc_hi = 0;
 
 static const uint32_t PMEM_SIZE = 128u * 1024u * 1024u;
 static const uint32_t PMEM_BASE = 0x80000000u;
@@ -102,7 +104,11 @@ static bool single_cycle() {
   if (trap_hit()) return true;
 
   update_mem_inputs();
-  if (trace_en && cycle_cnt < 40) {
+  bool trace_this_cycle = trace_en && (
+      cycle_cnt < 40 ||
+      (dut.imem_addr >= trace_pc_lo && dut.imem_addr <= trace_pc_hi)
+  );
+  if (trace_this_cycle) {
     std::printf("[pre  %04llu] pc=0x%08x instr=0x%08x x1=0x%08x dmem_addr=0x%08x dmem_we=%u\n",
                 (unsigned long long)cycle_cnt,
                 dut.imem_addr,
@@ -119,7 +125,7 @@ static bool single_cycle() {
     pmem_write32(dut.dmem_addr, dut.dmem_wdata, dut.dmem_wmask);
   }
 
-  if (trace_en && cycle_cnt < 40) {
+  if (trace_this_cycle) {
     std::printf("[cycle %04llu] pc=0x%08x instr=0x%08x x1=0x%08x dmem_addr=0x%08x dmem_we=%u\n",
                 (unsigned long long)cycle_cnt,
                 dut.imem_addr,
@@ -145,6 +151,9 @@ static void reset(int n) {
 int main(int argc, char **argv) {
   Verilated::commandArgs(argc, argv);
 
+  int sim_rc = 0;
+  bool saw_trap = false;
+
   bool enable_gui = false;
   const char *gui_env = std::getenv("NPC_GUI");
   if (gui_env != nullptr && std::strcmp(gui_env, "1") == 0) {
@@ -153,6 +162,14 @@ int main(int argc, char **argv) {
   const char *trace_env = std::getenv("NPC_TRACE");
   if (trace_env != nullptr && std::strcmp(trace_env, "1") == 0) {
     trace_en = true;
+  }
+  const char *trace_pc_env = std::getenv("NPC_TRACE_PC");
+  if (trace_pc_env != nullptr) {
+    unsigned lo = 0, hi = 0;
+    if (std::sscanf(trace_pc_env, "%x-%x", &lo, &hi) == 2) {
+      trace_pc_lo = lo;
+      trace_pc_hi = hi;
+    }
   }
 
   std::memset(pmem, 0, sizeof(pmem));
@@ -180,17 +197,25 @@ int main(int argc, char **argv) {
     if (trapped || trap_hit()) {
       uint32_t code = dut.trap ? dut.trap_code : trap_code;
       uint32_t pc = dut.trap ? dut.imem_addr : trap_pc;
+      saw_trap = true;
       if (code == 0) {
         std::printf("HIT GOOD TRAP at pc = 0x%08x\n", pc);
+        sim_rc = 0;
       } else {
         std::printf("HIT BAD TRAP at pc = 0x%08x, code = %u\n", pc, code);
+        sim_rc = 1;
       }
       break;
     }
   }
 
+  if (!saw_trap) {
+    std::printf("Simulation ended without trap\n");
+    sim_rc = 2;
+  }
+
   if (enable_gui) {
     nvboard_quit();
   }
-  return 0;
+  return sim_rc;
 }

@@ -6,8 +6,6 @@
 
 import "DPI-C" function void npc_ebreak(input int pc, input int code);
 
-/* verilator lint_off UNOPTFLAT */
-
 module minirv_core (
     input  wire         clk,
     input  wire         rst,
@@ -97,7 +95,11 @@ module minirv_core (
   reg [3:0]  wb_idx;
   reg [31:0] wb_data;
 
-  wire [1:0] load_byte_off = dmem_addr[1:0];
+  wire [31:0] load_addr = rs1_val + imm_i;
+  wire [31:0] store_addr = rs1_val + imm_s;
+  wire [31:0] load_word_addr = {load_addr[31:2], 2'b00};
+  wire [31:0] store_word_addr = {store_addr[31:2], 2'b00};
+  wire [1:0] load_byte_off = load_addr[1:0];
   wire [7:0] load_byte = (load_byte_off == 2'b00) ? dmem_rdata[7:0] :
                          (load_byte_off == 2'b01) ? dmem_rdata[15:8] :
                          (load_byte_off == 2'b10) ? dmem_rdata[23:16] :
@@ -160,7 +162,7 @@ module minirv_core (
         if (!rd_raw[4] && !rs1_raw[4]) begin
           dmem_valid = 1'b1;
           dmem_we = 1'b0;
-          dmem_addr = rs1_val + imm_i;
+          dmem_addr = load_word_addr;
           case (funct3)
             F3_LW: begin
               // lw
@@ -183,14 +185,14 @@ module minirv_core (
         if (!rs1_raw[4] && !rs2_raw[4]) begin
           dmem_valid = 1'b1;
           dmem_we = 1'b1;
-          dmem_addr = rs1_val + imm_s;
+          dmem_addr = store_word_addr;
           case (funct3)
             F3_SW: begin
               dmem_wmask = 4'b1111;
               dmem_wdata = rs2_val;
             end
             F3_SB: begin
-              case (dmem_addr[1:0])
+              case (store_addr[1:0])
                 2'b00: begin
                   dmem_wmask = 4'b0001;
                   dmem_wdata = {24'b0, rs2_val[7:0]};
@@ -271,5 +273,3 @@ module minirv_core (
   assign dbg_x1 = regs[1];
 
 endmodule
-
-/* verilator lint_on UNOPTFLAT */
