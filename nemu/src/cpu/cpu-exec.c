@@ -31,11 +31,41 @@ uint64_t g_nr_guest_inst = 0;
 static uint64_t g_timer = 0; // unit: us
 static bool g_print_step = false;
 
+#ifdef CONFIG_ITRACE
+#define IRINGBUF_SIZE 16
+static char iringbuf[IRINGBUF_SIZE][128];
+static int iringbuf_head = 0;
+static int iringbuf_cnt = 0;
+
+static void iringbuf_record(const char *str) {
+  strcpy(iringbuf[iringbuf_head], str);
+  iringbuf_head = (iringbuf_head + 1) % IRINGBUF_SIZE;
+  if (iringbuf_cnt < IRINGBUF_SIZE) {
+    iringbuf_cnt++;
+  }
+}
+
+static void iringbuf_display() {
+  if (iringbuf_cnt == 0) {
+    return;
+  }
+
+  puts("Instruction ring buffer:");
+  int start = (iringbuf_head - iringbuf_cnt + IRINGBUF_SIZE) % IRINGBUF_SIZE;
+  for (int i = 0; i < iringbuf_cnt; i++) {
+    puts(iringbuf[(start + i) % IRINGBUF_SIZE]);
+  }
+}
+#endif
+
 void device_update();
 
 static void trace_and_difftest(Decode *_this, vaddr_t dnpc) {
 #ifdef CONFIG_ITRACE_COND
   if (ITRACE_COND) { log_write("%s\n", _this->logbuf); }
+#endif
+#ifdef CONFIG_ITRACE
+  iringbuf_record(_this->logbuf);
 #endif
   if (g_print_step) { IFDEF(CONFIG_ITRACE, puts(_this->logbuf)); }
   IFDEF(CONFIG_DIFFTEST, difftest_step(_this->pc, dnpc));
@@ -97,6 +127,7 @@ static void statistic() {
 
 void assert_fail_msg() {
   isa_reg_display();
+  IFDEF(CONFIG_ITRACE, iringbuf_display());
   statistic();
 }
 
