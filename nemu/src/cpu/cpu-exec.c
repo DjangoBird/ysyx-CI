@@ -106,9 +106,9 @@ static void exec_once(Decode *s, vaddr_t pc) {
 #ifdef CONFIG_FTRACE
   // detect call/ret by looking at disassembly mnemonic
   if (s->logbuf[0]) {
-    if (strstr(s->logbuf, "\tcall") || strstr(s->logbuf, "\tjal") || strstr(s->logbuf, "\tjalr")) {
+    if (strstr(s->logbuf, "call") || strstr(s->logbuf, "jalr") || strstr(s->logbuf, "jal")) {
       ftrace_record_call(s->pc, s->dnpc);
-    } else if (strstr(s->logbuf, "\tret")) {
+    } else if (strstr(s->logbuf, "ret")) {
       ftrace_record_ret(s->pc, s->dnpc);
     }
   }
