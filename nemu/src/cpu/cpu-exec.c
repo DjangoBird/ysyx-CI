@@ -18,6 +18,7 @@
 #include <cpu/difftest.h>
 #include <locale.h>
 #include "monitor/sdb/sdb.h"
+#include "utils/ftrace.h"
 
 /* The assembly code of instructions executed is only output to the screen
  * when the number of instructions executed is less than this value.
@@ -31,11 +32,41 @@ uint64_t g_nr_guest_inst = 0;
 static uint64_t g_timer = 0; // unit: us
 static bool g_print_step = false;
 
+#ifdef CONFIG_ITRACE
+#define IRINGBUF_SIZE 16
+static char iringbuf[IRINGBUF_SIZE][128];
+static int iringbuf_head = 0;
+static int iringbuf_cnt = 0;
+
+static void iringbuf_record(const char *str) {
+  strcpy(iringbuf[iringbuf_head], str);
+  iringbuf_head = (iringbuf_head + 1) % IRINGBUF_SIZE;
+  if (iringbuf_cnt < IRINGBUF_SIZE) {
+    iringbuf_cnt++;
+  }
+}
+
+static void iringbuf_display() {
+  if (iringbuf_cnt == 0) {
+    return;
+  }
+
+  puts("Instruction ring buffer:");
+  int start = (iringbuf_head - iringbuf_cnt + IRINGBUF_SIZE) % IRINGBUF_SIZE;
+  for (int i = 0; i < iringbuf_cnt; i++) {
+    puts(iringbuf[(start + i) % IRINGBUF_SIZE]);
+  }
+}
+#endif
+
 void device_update();
 
 static void trace_and_difftest(Decode *_this, vaddr_t dnpc) {
 #ifdef CONFIG_ITRACE_COND
   if (ITRACE_COND) { log_write("%s\n", _this->logbuf); }
+#endif
+#ifdef CONFIG_ITRACE
+  iringbuf_record(_this->logbuf);
 #endif
   if (g_print_step) { IFDEF(CONFIG_ITRACE, puts(_this->logbuf)); }
   IFDEF(CONFIG_DIFFTEST, difftest_step(_this->pc, dnpc));
@@ -72,6 +103,16 @@ static void exec_once(Decode *s, vaddr_t pc) {
   void disassemble(char *str, int size, uint64_t pc, uint8_t *code, int nbyte);
   disassemble(p, s->logbuf + sizeof(s->logbuf) - p,
       MUXDEF(CONFIG_ISA_x86, s->snpc, s->pc), (uint8_t *)&s->isa.inst, ilen);
+#ifdef CONFIG_FTRACE
+  // detect call/ret by looking at disassembly mnemonic
+  if (s->logbuf[0]) {
+    if (strstr(s->logbuf, "call") || strstr(s->logbuf, "jalr") || strstr(s->logbuf, "jal")) {
+      ftrace_record_call(s->pc, s->dnpc);
+    } else if (strstr(s->logbuf, "ret")) {
+      ftrace_record_ret(s->pc, s->dnpc);
+    }
+  }
+#endif
 #endif
 }
 
@@ -97,6 +138,7 @@ static void statistic() {
 
 void assert_fail_msg() {
   isa_reg_display();
+  IFDEF(CONFIG_ITRACE, iringbuf_display());
   statistic();
 }
 
