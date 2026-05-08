@@ -18,6 +18,7 @@
 #include <cpu/difftest.h>
 #include <locale.h>
 #include "monitor/sdb/sdb.h"
+#include "utils/ftrace.h"
 
 /* The assembly code of instructions executed is only output to the screen
  * when the number of instructions executed is less than this value.
@@ -102,6 +103,16 @@ static void exec_once(Decode *s, vaddr_t pc) {
   void disassemble(char *str, int size, uint64_t pc, uint8_t *code, int nbyte);
   disassemble(p, s->logbuf + sizeof(s->logbuf) - p,
       MUXDEF(CONFIG_ISA_x86, s->snpc, s->pc), (uint8_t *)&s->isa.inst, ilen);
+#ifdef CONFIG_FTRACE
+  // detect call/ret by looking at disassembly mnemonic
+  if (s->logbuf[0]) {
+    if (strstr(s->logbuf, "\tcall") || strstr(s->logbuf, "\tjal") || strstr(s->logbuf, "\tjalr")) {
+      ftrace_record_call(s->pc, s->dnpc);
+    } else if (strstr(s->logbuf, "\tret")) {
+      ftrace_record_ret(s->pc, s->dnpc);
+    }
+  }
+#endif
 #endif
 }
 
