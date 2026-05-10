@@ -55,4 +55,6 @@ int    vsnprintf (char *str, size_t size, const char *format, va_list ap);
 }
 #endif
 
+#define __NATIVE_USE_KLIB__
+
 #endif
