@@ -46,6 +46,12 @@ static size_t utoa_buf(unsigned long long val, unsigned base, bool upper, char *
     }
   }
 
+  for (size_t i = 0, j = len ? len - 1 : 0; i < j; i++, j--) {
+    char tmp = buf[i];
+    buf[i] = buf[j];
+    buf[j] = tmp;
+  }
+
   return len;
 }
 
