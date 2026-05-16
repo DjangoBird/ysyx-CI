@@ -44,4 +44,8 @@ void check_watchpoints(void);
 // 打印当前所有监视点信息, 供 `info w` 使用
 void print_watchpoints(void);
 
+// 死循环启发式检测的重复阈值配置
+void set_loop_detect_threshold(int threshold);
+int get_loop_detect_threshold(void);
+
 #endif

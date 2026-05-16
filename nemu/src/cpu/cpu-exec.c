@@ -18,7 +18,9 @@
 #include <cpu/difftest.h>
 #include <locale.h>
 #include "monitor/sdb/sdb.h"
+#ifdef CONFIG_FTRACE
 #include "utils/ftrace.h"
+#endif
 
 /* The assembly code of instructions executed is only output to the screen
  * when the number of instructions executed is less than this value.
@@ -26,14 +28,18 @@
  * You can modify this value as you want.
  */
 #define MAX_INST_TO_PRINT 10
+#define LOOP_TRACE_SIZE 32
+#define LOOP_MAX_PERIOD 16
+#define LOOP_DEFAULT_THRESHOLD 8
 
 CPU_state cpu = {};
 uint64_t g_nr_guest_inst = 0;
 static uint64_t g_timer = 0; // unit: us
 static bool g_print_step = false;
+static int loop_detect_threshold = LOOP_DEFAULT_THRESHOLD;
 
 #ifdef CONFIG_ITRACE
-#define IRINGBUF_SIZE 16
+#define IRINGBUF_SIZE 32
 static char iringbuf[IRINGBUF_SIZE][128];
 static int iringbuf_head = 0;
 static int iringbuf_cnt = 0;
@@ -58,6 +64,78 @@ static void iringbuf_display() {
   }
 }
 #endif
+
+static vaddr_t loop_trace[LOOP_TRACE_SIZE];
+static int loop_trace_head = 0;
+static int loop_trace_cnt = 0;
+
+static void loop_trace_record(vaddr_t pc) {
+  loop_trace[loop_trace_head] = pc;
+  loop_trace_head = (loop_trace_head + 1) % LOOP_TRACE_SIZE;
+  if (loop_trace_cnt < LOOP_TRACE_SIZE) {
+    loop_trace_cnt++;
+  }
+}
+
+static vaddr_t loop_trace_get(int back) {
+  return loop_trace[(loop_trace_head + LOOP_TRACE_SIZE - 1 - back) % LOOP_TRACE_SIZE];
+}
+
+static bool loop_chunk_equal(int period, int chunk_a, int chunk_b) {
+  for (int i = 0; i < period; i++) {
+    if (loop_trace_get(chunk_a * period + i) != loop_trace_get(chunk_b * period + i)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool detect_loop(int *out_period, int *out_repeat) {
+  if (loop_detect_threshold <= 0) {
+    return false;
+  }
+
+  int max_period = LOOP_MAX_PERIOD < (loop_trace_cnt / loop_detect_threshold)
+                     ? LOOP_MAX_PERIOD : (loop_trace_cnt / loop_detect_threshold);
+  if (max_period <= 0) {
+    return false;
+  }
+
+  for (int period = 1; period <= max_period; period++) {
+    int needed = period * loop_detect_threshold;
+    if (loop_trace_cnt < needed) {
+      continue;
+    }
+
+    bool repeated = true;
+    for (int rep = 1; rep < loop_detect_threshold; rep++) {
+      if (!loop_chunk_equal(period, rep - 1, rep)) {
+        repeated = false;
+        break;
+      }
+    }
+
+    if (repeated) {
+      *out_period = period;
+      *out_repeat = loop_detect_threshold;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+static void report_possible_loop(vaddr_t pc, int period, int repeat) {
+  Log("Possible infinite loop detected at pc = " FMT_WORD ", pattern period = %d, repeat = %d",
+      pc, period, repeat);
+#ifdef CONFIG_ITRACE
+  puts("Recent instructions:");
+  iringbuf_display();
+#else
+  puts("Enable ITRACE to print recent instruction trace.");
+#endif
+  nemu_state.state = NEMU_STOP;
+}
 
 void device_update();
 
@@ -119,9 +197,19 @@ static void exec_once(Decode *s, vaddr_t pc) {
 static void execute(uint64_t n) {
   Decode s;
   for (;n > 0; n --) {
+    vaddr_t pc = cpu.pc;
+    loop_trace_record(pc);
     exec_once(&s, cpu.pc);
     g_nr_guest_inst ++;
     trace_and_difftest(&s, cpu.pc);
+
+    int loop_period = 0;
+    int loop_repeat = 0;
+    if (detect_loop(&loop_period, &loop_repeat)) {
+      report_possible_loop(pc, loop_period, loop_repeat);
+      break;
+    }
+
     if (nemu_state.state != NEMU_RUNNING) break;
     IFDEF(CONFIG_DEVICE, device_update());
   }
@@ -171,4 +259,12 @@ void cpu_exec(uint64_t n) {
       // fall through
     case NEMU_QUIT: statistic();
   }
+}
+
+void set_loop_detect_threshold(int threshold) {
+  loop_detect_threshold = threshold;
+}
+
+int get_loop_detect_threshold(void) {
+  return loop_detect_threshold;
 }

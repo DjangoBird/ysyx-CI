@@ -194,6 +194,34 @@ static int cmd_d(char *args) {
 #endif
 }
 
+static int cmd_loop(char *args) {
+  char *arg = strtok(NULL, " ");
+
+  if (arg == NULL) {
+    int threshold = get_loop_detect_threshold();
+    if (threshold <= 0) {
+      printf("Loop detection is disabled.\n");
+    } else {
+      printf("Loop detection threshold = %d\n", threshold);
+    }
+    return 0;
+  }
+
+  int threshold = 0;
+  if (sscanf(arg, "%d", &threshold) != 1) {
+    printf("Usage: loop N\n");
+    return 0;
+  }
+
+  set_loop_detect_threshold(threshold);
+  if (threshold <= 0) {
+    printf("Loop detection disabled.\n");
+  } else {
+    printf("Loop detection threshold set to %d\n", threshold);
+  }
+  return 0;
+}
+
 static int cmd_p(char *args){
   if(args == NULL){
     printf("Usage: p EXPR\n");
@@ -230,6 +258,7 @@ static struct {
   { "p", "Evaluate expression", cmd_p },
   { "w", "Set a watchpoint", cmd_w },
   { "d", "Delete a watchpoint", cmd_d },
+  { "loop", "Show or set loop-detection threshold", cmd_loop },
 };
 
 #define NR_CMD ARRLEN(cmd_table)
