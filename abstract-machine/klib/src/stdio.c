@@ -55,23 +55,23 @@ static size_t utoa_buf(unsigned long long val, unsigned base, bool upper, char *
   return len;
 }
 
-static unsigned long long get_unsigned_arg(va_list ap, int length) {
+static unsigned long long get_unsigned_arg(va_list *ap, int length) {
   switch (length) {
-    case LEN_HH: return (unsigned char)va_arg(ap, unsigned int);
-    case LEN_H:  return (unsigned short)va_arg(ap, unsigned int);
-    case LEN_L:  return va_arg(ap, unsigned long);
-    case LEN_LL: return va_arg(ap, unsigned long long);
-    default:     return va_arg(ap, unsigned int);
+    case LEN_HH: return (unsigned char)va_arg(*ap, unsigned int);
+    case LEN_H:  return (unsigned short)va_arg(*ap, unsigned int);
+    case LEN_L:  return va_arg(*ap, unsigned long);
+    case LEN_LL: return va_arg(*ap, unsigned long long);
+    default:     return va_arg(*ap, unsigned int);
   }
 }
 
-static long long get_signed_arg(va_list ap, int length) {
+static long long get_signed_arg(va_list *ap, int length) {
   switch (length) {
-    case LEN_HH: return (signed char)va_arg(ap, int);
-    case LEN_H:  return (short)va_arg(ap, int);
-    case LEN_L:  return va_arg(ap, long);
-    case LEN_LL: return va_arg(ap, long long);
-    default:     return va_arg(ap, int);
+    case LEN_HH: return (signed char)va_arg(*ap, int);
+    case LEN_H:  return (short)va_arg(*ap, int);
+    case LEN_L:  return va_arg(*ap, long);
+    case LEN_LL: return va_arg(*ap, long long);
+    default:     return va_arg(*ap, int);
   }
 }
 
@@ -237,7 +237,7 @@ int vsnprintf(char *out, size_t n, const char *fmt, va_list ap) {
       }
       case 'd':
       case 'i': {
-        long long v = get_signed_arg(ap, length);
+        long long v = get_signed_arg(&ap, length);
         unsigned long long uv;
         char prefix[1] = {0};
 
@@ -258,7 +258,7 @@ int vsnprintf(char *out, size_t n, const char *fmt, va_list ap) {
         break;
       }
       case 'u': {
-        unsigned long long v = get_unsigned_arg(ap, length);
+        unsigned long long v = get_unsigned_arg(&ap, length);
         char buf[32];
         size_t len = 0;
         if (!(precision_specified && precision == 0 && v == 0)) {
@@ -270,7 +270,7 @@ int vsnprintf(char *out, size_t n, const char *fmt, va_list ap) {
         break;
       }
       case 'x': {
-        unsigned long long v = get_unsigned_arg(ap, length);
+        unsigned long long v = get_unsigned_arg(&ap, length);
         char buf[32];
         size_t len = 0;
         if (!(precision_specified && precision == 0 && v == 0)) {
@@ -282,7 +282,7 @@ int vsnprintf(char *out, size_t n, const char *fmt, va_list ap) {
         break;
       }
       case 'X': {
-        unsigned long long v = get_unsigned_arg(ap, length);
+        unsigned long long v = get_unsigned_arg(&ap, length);
         char buf[32];
         size_t len = 0;
         if (!(precision_specified && precision == 0 && v == 0)) {
