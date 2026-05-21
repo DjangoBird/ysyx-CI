@@ -3,14 +3,20 @@
 
 #define SYNC_ADDR (VGACTL_ADDR + 4)
 
+static int screen_w = 0;
+static int screen_h = 0;
+
 void __am_gpu_init() {
+  uint32_t vga_ctl = inl(VGACTL_ADDR);
+  screen_w = vga_ctl >> 16;
+  screen_h = vga_ctl & 0xffff;
 }
 
 void __am_gpu_config(AM_GPU_CONFIG_T *cfg) {
   *cfg = (AM_GPU_CONFIG_T) {
     .present = true, .has_accel = false,
-    .width = 0, .height = 0,
-    .vmemsz = 0
+    .width = screen_w, .height = screen_h,
+    .vmemsz = screen_w * screen_h * sizeof(uint32_t)
   };
 }
 
