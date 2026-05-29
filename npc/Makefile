@@ -3,6 +3,7 @@ TOPNAME = top
 BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj_dir
 BIN = $(BUILD_DIR)/$(TOPNAME)
+GEN_VSRC = $(BUILD_DIR)/chisel/top.v
 
 VERILATOR = verilator
 
@@ -13,7 +14,8 @@ NXDC_FILES = top.nxdc
 SRC_AUTO_BIND = $(abspath $(BUILD_DIR)/auto_bind.cpp)
 
 # ========== 源文件 ==========
-VSRCS = $(shell find $(abspath ./vsrc) -name "*.v")
+CHISEL_SRCS = $(shell find $(abspath ./src/main/scala) -name "*.scala")
+VSRCS = $(GEN_VSRC)
 CSRCS = $(shell find $(abspath ./csrc) -name "*.c" -o -name "*.cc" -o -name "*.cpp")
 CSRCS += $(SRC_AUTO_BIND)
 
@@ -30,8 +32,12 @@ $(SRC_AUTO_BIND): $(NXDC_FILES)
 INCFLAGS = $(addprefix -I, $(INC_PATH))
 CXXFLAGS += $(INCFLAGS)
 
-VERILATOR_FLAGS += -Wall --trace -cc --build \
+VERILATOR_FLAGS += -Wall -cc --build \
 				   -O3 --x-assign fast --x-initial fast --noassert
+
+$(GEN_VSRC): $(CHISEL_SRCS) build.sbt project/build.properties
+	@mkdir -p $(BUILD_DIR)/chisel
+	sbt --batch "runMain npc.GenerateVerilog"
 
 # ========== 构建 ==========
 all: $(BIN)
@@ -60,8 +66,8 @@ clean:
 	rm -rf $(BUILD_DIR) wave.vcd
 
 lint:
-	verilator --lint-only -Wall -Iinclude --top-module top vsrc/*.v
+	verilator --lint-only -Wall --top-module top $(GEN_VSRC)
 
-.PHONY: all run sim clean nvboard
+.PHONY: all run sim clean nvboard lint
 
 include ../Makefile
