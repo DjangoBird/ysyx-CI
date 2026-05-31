@@ -55,7 +55,9 @@ module minirv_core (
   wire [3:0]  rs2_idx;
   wire [31:0] imm_i;
   wire [31:0] imm_s;
+  wire [31:0] imm_b;
   wire [31:0] imm_u;
+  wire [31:0] imm_j;
   wire        is_ebreak;
 
   wire [31:0] rs1_val;
@@ -118,7 +120,9 @@ module minirv_core (
     .rs2_idx  (rs2_idx),
     .imm_i    (imm_i),
     .imm_s    (imm_s),
+    .imm_b    (imm_b),
     .imm_u    (imm_u),
+    .imm_j    (imm_j),
     .is_ebreak(is_ebreak)
   );
 
@@ -163,7 +167,9 @@ module minirv_core (
     .rs2_val       (rs2_val),
     .imm_i         (imm_i),
     .imm_s         (imm_s),
+    .imm_b         (imm_b),
     .imm_u         (imm_u),
+    .imm_j         (imm_j),
     .a0_val        (a0_val),
     .pc            (pc),
     .pc_next_seq   (pc_next_seq),

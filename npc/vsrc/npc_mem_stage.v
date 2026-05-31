@@ -13,6 +13,21 @@ module npc_mem_stage(
       wb_data = wb_data_pre;
     end else begin
       case (load_funct3)
+        `F3_LB: begin
+          case (load_byte_off)
+            2'b00: wb_data = {{24{dmem_rdata[7]}}, dmem_rdata[7:0]};
+            2'b01: wb_data = {{24{dmem_rdata[15]}}, dmem_rdata[15:8]};
+            2'b10: wb_data = {{24{dmem_rdata[23]}}, dmem_rdata[23:16]};
+            default: wb_data = {{24{dmem_rdata[31]}}, dmem_rdata[31:24]};
+          endcase
+        end
+        `F3_LH: begin
+          if (load_byte_off[1]) begin
+            wb_data = {{16{dmem_rdata[31]}}, dmem_rdata[31:16]};
+          end else begin
+            wb_data = {{16{dmem_rdata[15]}}, dmem_rdata[15:0]};
+          end
+        end
         `F3_LW: begin
           wb_data = dmem_rdata;
         end
@@ -23,6 +38,13 @@ module npc_mem_stage(
             2'b10: wb_data = {24'b0, dmem_rdata[23:16]};
             default: wb_data = {24'b0, dmem_rdata[31:24]};
           endcase
+        end
+        `F3_LHU: begin
+          if (load_byte_off[1]) begin
+            wb_data = {16'b0, dmem_rdata[31:16]};
+          end else begin
+            wb_data = {16'b0, dmem_rdata[15:0]};
+          end
         end
         default: begin
           wb_data = wb_data_pre;
