@@ -1,18 +1,18 @@
-# NPC 模拟器（Chisel 版本）
+# NPC 模拟器（Verilog 版本）
 
-本目录是一个基于 Chisel + Verilator 的 NPC。当前目标是 RV32E 单周期实现，硬件内部按取指、译码、执行、访存、寄存器堆和 PC 模块拆开，C++ 侧提供内存模型、单步时钟推进和 sdb 调试器。
+本目录是一个基于手写 Verilog + Verilator 的 NPC。当前目标是 RV32E 单周期实现，硬件内部按取指、译码、执行、访存、寄存器堆和 PC 模块拆开，C++ 侧提供内存模型、单步时钟推进和 sdb 调试器。
 
 ## 先决条件
 
 - Linux 环境
-- 安装工具：`git`, `make`, `g++`, `verilator`, `python3`, `java`, `sbt`
+- 安装工具：`git`, `make`, `g++`, `verilator`, `python3`
 - 如果需要 GUI（NVBoard / SDL 显示），还需安装：`libsdl2-dev` 以及 NVBoard 的相关依赖
 
 示例（Debian/Ubuntu）快速安装：
 
 ```bash
 sudo apt update
-sudo apt install -y git build-essential verilator python3 python3-pip libsdl2-dev openjdk-17-jdk
+sudo apt install -y git build-essential verilator python3 python3-pip libsdl2-dev
 ```
 
 获取代码：
@@ -26,7 +26,7 @@ cd ysyx-workbench/npc
 
 ### 硬件部分
 
-Chisel 顶层是 [src/main/scala/npc/Top.scala](src/main/scala/npc/Top.scala)。顶层模块名固定为 `top`，端口包括：
+Verilog 顶层是 [vsrc/top.v](vsrc/top.v)。顶层模块名固定为 `top`，端口包括：
 
 - `clk/rst/led`
 - 指令存储器接口：`imem_addr`, `imem_rdata`
@@ -34,27 +34,29 @@ Chisel 顶层是 [src/main/scala/npc/Top.scala](src/main/scala/npc/Top.scala)。
 - trap 接口：`trap`, `trap_code`
 - sdb 调试寄存器端口：`dbg_x0_o` 到 `dbg_x15_o`
 
-当前 NPC 是单周期结构。每次 `single_cycle()` 推进一个时钟上升沿，当前 PC 对应的一条指令完成取指、译码、执行、访存、写回和 PC 更新。
+当前 NPC 是 RV32E 单周期结构。每次 `single_cycle()` 推进一个时钟上升沿，当前 PC 对应的一条指令完成取指、译码、执行、访存、写回和 PC 更新。PC 复位地址为 `0x80000000`，通用寄存器为 RV32E 规定的 `x0`-`x15`，其中 `x0` 恒为 0。
 
 模块分工：
 
-- [Rv32e.scala](src/main/scala/npc/Rv32e.scala)：集中定义 RV32E 常量。PC 复位地址是 `0x80000000`，寄存器数量是 16。
-- [ProgramCounter.scala](src/main/scala/npc/ProgramCounter.scala)：保存 PC，reset 后从 `0x80000000` 开始。
-- [FetchStage.scala](src/main/scala/npc/FetchStage.scala)：把 PC 输出到 `imem_addr`，从 `imem_rdata` 取得指令，同时计算 `pc + 4`。
-- [DecodeStage.scala](src/main/scala/npc/DecodeStage.scala)：解析 opcode、rd、rs1、rs2、funct3、funct7 和 I/S/B/U/J 立即数，并识别 `ebreak`。
-- [RegisterFile.scala](src/main/scala/npc/RegisterFile.scala)：实现 RV32E 的 16 个 32 位通用寄存器，`x0` 不写入。
-- [ExecuteStage.scala](src/main/scala/npc/ExecuteStage.scala)：执行当前已支持的指令子集，产生写回、访存、PC 跳转和 trap 控制信号。
-- [MemoryStage.scala](src/main/scala/npc/MemoryStage.scala)：处理 load 写回数据，完成字节/半字/字访问的符号扩展或零扩展。
+- [vsrc/minirv_defs.vh](vsrc/minirv_defs.vh)：集中定义 RV32E opcode 和 funct3 常量。
+- [vsrc/top.v](vsrc/top.v)：顶层封装，连接核心、内存接口、trap 接口和调试寄存器端口。
+- [vsrc/minirv_core.v](vsrc/minirv_core.v)：连接取指、译码、执行、访存、写回各级。
+- [vsrc/npc_if_stage.v](vsrc/npc_if_stage.v)：输出取指地址、取回指令并计算 `pc + 4`。
+- [vsrc/npc_id_stage.v](vsrc/npc_id_stage.v)：解析 opcode、rd、rs1、rs2、funct3、funct7 和 I/S/B/U/J 立即数，并识别 `ebreak`。
+- [vsrc/npc_ex_stage.v](vsrc/npc_ex_stage.v)：实现完整 RV32E 基础整数 ISA 的执行、访存请求、PC 跳转和 trap 控制。
+- [vsrc/npc_mem_stage.v](vsrc/npc_mem_stage.v)：处理 load 写回数据，完成字节/半字/字访问的符号扩展或零扩展。
+- [vsrc/npc_wb_stage.v](vsrc/npc_wb_stage.v)：保存 PC 和 16 个 32-bit 通用寄存器，并完成写回。
 
-当前支持的指令子集包括：
+已实现的 RV32E 基础指令包括：
 
-- 整数计算：`add`, `sub`, `addi`, `and`, `andi`, `or`, `ori`, `xor`, `xori`, `sll`, `slli`, `srl`, `srli`, `sra`, `srai`, `slt`, `slti`, `sltu`, `sltiu`
+- 整数寄存器计算：`add`, `sub`, `sll`, `slt`, `sltu`, `xor`, `srl`, `sra`, `or`, `and`
+- 整数立即数计算：`addi`, `slti`, `sltiu`, `xori`, `ori`, `andi`, `slli`, `srli`, `srai`
 - PC/跳转/分支：`auipc`, `lui`, `jal`, `jalr`, `beq`, `bne`, `blt`, `bge`, `bltu`, `bgeu`
 - 访存：`lb`, `lh`, `lw`, `lbu`, `lhu`, `sb`, `sh`, `sw`
 - 内存屏障：`fence`, `fence.i`。当前 NPC 是单周期顺序执行模型，因此这两条按 no-op 处理并顺序推进 PC。
 - 环境指令：`ebreak`, `ecall`。`ebreak` 使用 `a0` 作为 AM 退出码；`ecall` 会命中非 0 trap code。
 
-这还不是完整 RV32E，但已经可以运行 AM 的基础 cpu-tests，例如 `dummy`, `add`, `bit`, `shift`, `if-else`, `load-store`, `movsx`。
+RV32E 不包含 `x16`-`x31`。硬件执行级会把访问 `x16`-`x31`、非法 funct3/funct7、未知 opcode、未实现 SYSTEM 指令等编码报告为 illegal-instruction trap，`trap_code = 2`。`trap_code = 0` 仍表示 AM good trap，`trap_code = 1` 用于当前简化模型下的 `ecall`。
 
 ### C++ 仿真运行时
 
@@ -79,7 +81,7 @@ C++ 运行时在 [csrc](csrc) 下：
 
 ### DiffTest 支持
 
-NPC 的 DUT 是 Chisel/Verilator 生成的 `build/top`，REF 使用 NEMU 生成的共享库：
+NPC 的 DUT 是 Verilog/Verilator 构建出的 `build/top`，REF 使用 NEMU 生成的共享库：
 
 ```text
 ../nemu/build/riscv32-nemu-interpreter-so
@@ -120,7 +122,7 @@ make run ARGS="-b -d ../nemu/build/riscv32-nemu-interpreter-so" IMG=path/to/img.
 
 NPC 侧实现了模仿 NEMU 的基础 trace：
 
-- `itrace`：记录每条执行指令的 PC、机器码和 capstone 反汇编。当前指令通过 Chisel `TraceDpi` 黑盒调用 DPI-C 传给 C++。
+- `itrace`：记录每条执行指令的 PC、机器码和 capstone 反汇编。当前指令由 Verilator DUT 侧内存接口提交给 C++ trace 逻辑。
 - `mtrace`：记录数据存储器读写，包括地址、数据、写掩码和访问长度。
 - `ftrace`：记录 `jal/jalr` 风格的函数调用和 `ret` 返回。当前硬件主要支持 `jalr`，所以 ftrace 对 `jalr rd=x1/x5` 视作 call，对 `jalr x0, 0(x1/x5)` 视作 ret。
 
@@ -160,7 +162,7 @@ mtrace W addr=0x80000000 len=4 data=0x0000000c mask=0xf
 
 sdb 默认启动。它不依赖 readline，只使用标准输入输出，所以可以交互使用，也可以用管道喂命令做自动测试。
 
-寄存器读取通过 Chisel 顶层公开的 `dbg_x0_o` 到 `dbg_x15_o` 端口完成，不依赖 Verilator 内部层级名。这样修改 RTL 层级或升级 Verilator 时更稳。
+寄存器读取通过 Verilog 顶层公开的 `dbg_x0_o` 到 `dbg_x15_o` 端口完成，不依赖 Verilator 内部层级名。这样修改 RTL 层级或升级 Verilator 时更稳。
 
 sdb 命令：
 
@@ -201,14 +203,8 @@ make all
 
 构建流程：
 
-1. `sbt --batch "runMain npc.GenerateVerilog"` 运行 [GenerateVerilog.scala](src/main/scala/npc/GenerateVerilog.scala)，把 Chisel 生成到 `build/chisel/top.v`。
-2. `verilator` 读取 `build/chisel/top.v` 和 `csrc/*.cpp`，编译出 `build/top`。
-
-如果本机需要代理才能访问 Maven 仓库，可临时给 sbt/JVM 传入代理参数，例如：
-
-```bash
-JAVA_TOOL_OPTIONS="-Dhttp.proxyHost=127.0.0.1 -Dhttp.proxyPort=7897 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=7897" SBT_OPTS="-Dsbt.coursier=false" make all
-```
+1. `verilator` 读取 [vsrc](vsrc) 下的手写 Verilog 和 `csrc/*.cpp`。
+2. 生成并编译 C++ 仿真模型，输出 `build/top`。
 
 检查生成 Verilog：
 
@@ -309,19 +305,13 @@ void halt(int code) {
 
 ### 本次 RV32E 指令扩展对应代码
 
-主要硬件实现位于 Chisel 源码，`make all` 会从这些文件生成 `build/chisel/top.v`：
+主要硬件实现位于 [vsrc](vsrc) 下的手写 Verilog，`make all` 会直接把这些 RTL 文件交给 Verilator：
 
-- [src/main/scala/npc/Rv32e.scala](src/main/scala/npc/Rv32e.scala)：补充 `BRANCH` opcode 以及算术、逻辑、移位、比较、分支、字节/半字访存相关 `funct3` 常量。
-- [src/main/scala/npc/DecodeStage.scala](src/main/scala/npc/DecodeStage.scala)：新增 B 型立即数 `immB`，用于条件分支目标地址计算。
-- [src/main/scala/npc/Top.scala](src/main/scala/npc/Top.scala)：把 `immB` 从译码级连接到执行级。
-- [src/main/scala/npc/ExecuteStage.scala](src/main/scala/npc/ExecuteStage.scala)：实现 `OP/OP-IMM` 的加减、逻辑、移位、比较；实现 `beq/bne/blt/bge/bltu/bgeu`；实现 `sh` 的写掩码和写数据对齐；将 `fence/fence.i` 作为单周期顺序模型下的 no-op 处理。
-- [src/main/scala/npc/MemoryStage.scala](src/main/scala/npc/MemoryStage.scala)：实现 `lb/lh/lbu/lhu/lw` 的写回数据选择和符号/零扩展。
-
-仓库里也保留了 [vsrc](vsrc) 下的手写 Verilog 版本，当前同步更新了对应文件，便于阅读或切换到手写 RTL 路径时保持行为一致。但默认构建路径仍是 Chisel：
-
-```make
-VSRCS = $(GEN_VSRC) $(BUILD_DIR)/chisel/TraceDpi.v
-```
+- [vsrc/minirv_defs.vh](vsrc/minirv_defs.vh)：定义 RV32E opcode/funct3 常量。
+- [vsrc/npc_id_stage.v](vsrc/npc_id_stage.v)：生成 I/S/B/U/J 立即数并识别 `ebreak`。
+- [vsrc/npc_ex_stage.v](vsrc/npc_ex_stage.v)：覆盖 RV32E 基础整数 ISA，并对非法 RV32E 编码产生 `trap_code = 2`。
+- [vsrc/npc_mem_stage.v](vsrc/npc_mem_stage.v)：实现 `lb/lh/lw/lbu/lhu` 的写回扩展。
+- [vsrc/npc_wb_stage.v](vsrc/npc_wb_stage.v)：实现 16 个 RV32E GPR 和 PC。
 
 ### 操作流程
 
@@ -404,19 +394,18 @@ make NPC_GUI=1 run IMG=path/to/img.bin
   - [csrc/npc_memory.h](csrc/npc_memory.h) / [csrc/npc_memory.cpp](csrc/npc_memory.cpp)
   - [csrc/npc_step.h](csrc/npc_step.h) / [csrc/npc_step.cpp](csrc/npc_step.cpp)
   - [csrc/npc_sdb.h](csrc/npc_sdb.h) / [csrc/npc_sdb.cpp](csrc/npc_sdb.cpp)
-- Chisel 硬件： [src/main/scala/npc](src/main/scala/npc)
-  - [src/main/scala/npc/Top.scala](src/main/scala/npc/Top.scala)
-  - [src/main/scala/npc/Rv32e.scala](src/main/scala/npc/Rv32e.scala)
-  - [src/main/scala/npc/FetchStage.scala](src/main/scala/npc/FetchStage.scala)
-  - [src/main/scala/npc/DecodeStage.scala](src/main/scala/npc/DecodeStage.scala)
-  - [src/main/scala/npc/ExecuteStage.scala](src/main/scala/npc/ExecuteStage.scala)
-  - [src/main/scala/npc/MemoryStage.scala](src/main/scala/npc/MemoryStage.scala)
-  - [src/main/scala/npc/RegisterFile.scala](src/main/scala/npc/RegisterFile.scala)
-  - [src/main/scala/npc/ProgramCounter.scala](src/main/scala/npc/ProgramCounter.scala)
+- Verilog 硬件： [vsrc](vsrc)
+  - [vsrc/top.v](vsrc/top.v)
+  - [vsrc/minirv_core.v](vsrc/minirv_core.v)
+  - [vsrc/minirv_defs.vh](vsrc/minirv_defs.vh)
+  - [vsrc/npc_if_stage.v](vsrc/npc_if_stage.v)
+  - [vsrc/npc_id_stage.v](vsrc/npc_id_stage.v)
+  - [vsrc/npc_ex_stage.v](vsrc/npc_ex_stage.v)
+  - [vsrc/npc_mem_stage.v](vsrc/npc_mem_stage.v)
+  - [vsrc/npc_wb_stage.v](vsrc/npc_wb_stage.v)
 
 ## 排查建议
 
-- 如果第一次构建较慢，通常是 sbt 在拉取 Chisel 依赖。
-- 如果 Verilator 找不到生成的 `top.v`，先检查 Chisel 生成步骤是否成功完成。
-- 如果 sbt 下载依赖时出现 SSL handshake 错误，通常是代理没有传给 JVM/coursier；可参考上面的 `JAVA_TOOL_OPTIONS` 和 `SBT_OPTS` 示例。
-- `make lint` 会对 Chisel 生成的 `build/chisel/top.v` 执行 Verilator lint。
+- 如果 Verilator 报找不到 include 文件，先确认 [vsrc/minirv_defs.vh](vsrc/minirv_defs.vh) 仍在 `vsrc` 目录下。
+- 如果程序访问 `x16`-`x31` 后立刻 bad trap，这是 RV32E 的预期行为；需要确认镜像使用 `-march=rv32e` 和 `-mabi=ilp32e` 编译。
+- `make lint` 会直接对 [vsrc](vsrc) 下的手写 Verilog 执行 Verilator lint。

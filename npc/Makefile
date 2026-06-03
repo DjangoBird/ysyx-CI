@@ -3,7 +3,6 @@ TOPNAME = top
 BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj_dir
 BIN = $(BUILD_DIR)/$(TOPNAME)
-GEN_VSRC = $(BUILD_DIR)/chisel/top.v
 
 VERILATOR = verilator
 NPC_HOME ?= $(abspath .)
@@ -15,8 +14,7 @@ export NPC_HOME NEMU_HOME AM_HOME
 NXDC_FILES = top.nxdc
 
 # ========== 源文件 ==========
-CHISEL_SRCS = $(shell find $(abspath ./src/main/scala) -name "*.scala")
-VSRCS = $(GEN_VSRC) $(BUILD_DIR)/chisel/TraceDpi.v
+VSRCS = $(shell find $(abspath ./vsrc) -name "*.v" -o -name "*.sv")
 CSRCS = $(shell find $(abspath ./csrc) -name "*.c" -o -name "*.cc" -o -name "*.cpp")
 
 
@@ -64,16 +62,9 @@ INCFLAGS = $(addprefix -I, $(INC_PATH))
 CXXFLAGS += $(INCFLAGS)
 
 VERILATOR_FLAGS += -Wall -cc --build \
+                   -I$(abspath ./vsrc) \
 				   -O3 --x-assign fast --x-initial fast --noassert \
 				   -Wno-DECLFILENAME
-
-$(GEN_VSRC): $(CHISEL_SRCS) build.sbt project/build.properties
-	@mkdir -p $(BUILD_DIR)/chisel
-	sbt --batch "runMain npc.GenerateVerilog"
-
-$(BUILD_DIR)/chisel/TraceDpi.v: $(GEN_VSRC)
-	@test -f $@
-
 
 $(LIBCAPSTONE):
 	$(MAKE) -C $(CAPSTONE_HOME)/..
@@ -117,7 +108,7 @@ clean:
 	rm -rf $(BUILD_DIR) wave.vcd
 
 lint: $(VSRCS)
-	$(VERILATOR) --lint-only -Wall -Wno-DECLFILENAME --top-module $(TOPNAME) $(VSRCS)
+	$(VERILATOR) --lint-only -Wall -Wno-DECLFILENAME -I$(abspath ./vsrc) --top-module $(TOPNAME) $(VSRCS)
 
 .PHONY: all run run-env sim clean nvboard lint
 

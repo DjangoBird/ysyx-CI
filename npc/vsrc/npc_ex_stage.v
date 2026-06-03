@@ -1,6 +1,4 @@
 `include "minirv_defs.vh"
-import "DPI-C" function void npc_ebreak(input int pc, input int code);
-
 module npc_ex_stage(
     input  wire [6:0]  opcode,
     input  wire [4:0]  rd_raw,
@@ -48,8 +46,11 @@ module npc_ex_stage(
                   (rs1_raw == 5'd0) &&
                   (rd_raw == 5'd0) &&
                   (imm_i[11:0] == 12'h000);
+  reg illegal_instr;
 
   always @(*) begin
+    illegal_instr = 1'b0;
+
     wb_en = 1'b0;
     wb_idx = rd_idx;
     wb_data_pre = 32'b0;
@@ -78,35 +79,35 @@ module npc_ex_stage(
               end else if (funct7 == 7'b0000000) begin
                 wb_data_pre = rs1_val + rs2_val;
               end else begin
-                wb_en = 1'b0;
+                illegal_instr = 1'b1;
               end
             end
             `F3_SLL: begin
               if (funct7 == 7'b0000000) begin
                 wb_data_pre = rs1_val << shamt_r;
               end else begin
-                wb_en = 1'b0;
+                illegal_instr = 1'b1;
               end
             end
             `F3_SLT: begin
               if (funct7 == 7'b0000000) begin
                 wb_data_pre = {31'b0, rs1_signed < rs2_signed};
               end else begin
-                wb_en = 1'b0;
+                illegal_instr = 1'b1;
               end
             end
             `F3_SLTU: begin
               if (funct7 == 7'b0000000) begin
                 wb_data_pre = {31'b0, rs1_val < rs2_val};
               end else begin
-                wb_en = 1'b0;
+                illegal_instr = 1'b1;
               end
             end
             `F3_XOR: begin
               if (funct7 == 7'b0000000) begin
                 wb_data_pre = rs1_val ^ rs2_val;
               end else begin
-                wb_en = 1'b0;
+                illegal_instr = 1'b1;
               end
             end
             `F3_SRL_SRA: begin
@@ -115,27 +116,29 @@ module npc_ex_stage(
               end else if (funct7 == 7'b0000000) begin
                 wb_data_pre = rs1_val >> shamt_r;
               end else begin
-                wb_en = 1'b0;
+                illegal_instr = 1'b1;
               end
             end
             `F3_OR: begin
               if (funct7 == 7'b0000000) begin
                 wb_data_pre = rs1_val | rs2_val;
               end else begin
-                wb_en = 1'b0;
+                illegal_instr = 1'b1;
               end
             end
             `F3_AND: begin
               if (funct7 == 7'b0000000) begin
                 wb_data_pre = rs1_val & rs2_val;
               end else begin
-                wb_en = 1'b0;
+                illegal_instr = 1'b1;
               end
             end
             default: begin
-              wb_en = 1'b0;
+              illegal_instr = 1'b1;
             end
           endcase
+        end else begin
+          illegal_instr = 1'b1;
         end
       end
 
@@ -148,7 +151,7 @@ module npc_ex_stage(
               if (imm_i[11:5] == 7'b0000000) begin
                 wb_data_pre = rs1_val << shamt_i;
               end else begin
-                wb_en = 1'b0;
+                illegal_instr = 1'b1;
               end
             end
             `F3_SLT: wb_data_pre = {31'b0, rs1_signed < $signed(imm_i)};
@@ -160,13 +163,15 @@ module npc_ex_stage(
               end else if (imm_i[11:5] == 7'b0000000) begin
                 wb_data_pre = rs1_val >> shamt_i;
               end else begin
-                wb_en = 1'b0;
+                illegal_instr = 1'b1;
               end
             end
             `F3_OR: wb_data_pre = rs1_val | imm_i;
             `F3_AND: wb_data_pre = rs1_val & imm_i;
-            default: wb_en = 1'b0;
+            default: illegal_instr = 1'b1;
           endcase
+        end else begin
+          illegal_instr = 1'b1;
         end
       end
 
@@ -174,6 +179,8 @@ module npc_ex_stage(
         if (rd_raw < 5'd16) begin
           wb_en = (rd_idx != 4'd0);
           wb_data_pre = pc + imm_u;
+        end else begin
+          illegal_instr = 1'b1;
         end
       end
 
@@ -181,6 +188,8 @@ module npc_ex_stage(
         if (rd_raw < 5'd16) begin
           wb_en = (rd_idx != 4'd0);
           wb_data_pre = imm_u;
+        end else begin
+          illegal_instr = 1'b1;
         end
       end
 
@@ -189,16 +198,25 @@ module npc_ex_stage(
           wb_en = (rd_idx != 4'd0);
           wb_data_pre = pc_next_seq;
           pc_next = pc + imm_j;
+        end else begin
+          illegal_instr = 1'b1;
         end
       end
 
       `OPCODE_LOAD: begin
         if (rd_raw < 5'd16 && rs1_raw < 5'd16) begin
-          dmem_valid = 1'b1;
-          dmem_we = 1'b0;
-          dmem_addr = load_word_addr;
-          wb_en = (rd_idx != 4'd0);
-          wb_from_mem = 1'b1;
+          case (funct3)
+            `F3_LB, `F3_LH, `F3_LW, `F3_LBU, `F3_LHU: begin
+              dmem_valid = 1'b1;
+              dmem_we = 1'b0;
+              dmem_addr = load_word_addr;
+              wb_en = (rd_idx != 4'd0);
+              wb_from_mem = 1'b1;
+            end
+            default: illegal_instr = 1'b1;
+          endcase
+        end else begin
+          illegal_instr = 1'b1;
         end
       end
 
@@ -242,11 +260,11 @@ module npc_ex_stage(
               endcase
             end
             default: begin
-              dmem_valid = 1'b0;
-              dmem_we = 1'b0;
-              dmem_wmask = 4'b0000;
+              illegal_instr = 1'b1;
             end
           endcase
+        end else begin
+          illegal_instr = 1'b1;
         end
       end
 
@@ -272,14 +290,20 @@ module npc_ex_stage(
               if (rs1_val >= rs2_val) pc_next = pc + imm_b;
             end
             default: begin
+              illegal_instr = 1'b1;
             end
           endcase
+        end else begin
+          illegal_instr = 1'b1;
         end
       end
 
       `OPCODE_MISC_MEM: begin
-        if (rd_raw == 5'd0 && rs1_raw == 5'd0) begin
+        if (rd_raw == 5'd0 && rs1_raw == 5'd0 &&
+            (funct3 == 3'b000 || funct3 == 3'b001)) begin
           pc_next = pc_next_seq;
+        end else begin
+          illegal_instr = 1'b1;
         end
       end
 
@@ -288,6 +312,8 @@ module npc_ex_stage(
           wb_en = (rd_idx != 4'd0);
           wb_data_pre = pc_next_seq;
           pc_next = (rs1_val + imm_i) & ~32'b1;
+        end else begin
+          illegal_instr = 1'b1;
         end
       end
 
@@ -295,17 +321,30 @@ module npc_ex_stage(
         if (is_ebreak) begin
           trap = 1'b1;
           trap_code = a0_val;
-          npc_ebreak(pc, a0_val);
           pc_next = pc;
         end else if (is_ecall) begin
           trap = 1'b1;
           trap_code = 32'd1;
           pc_next = pc;
+        end else begin
+          illegal_instr = 1'b1;
         end
       end
 
       default: begin
+        illegal_instr = 1'b1;
       end
     endcase
+
+    if (illegal_instr) begin
+      wb_en = 1'b0;
+      wb_from_mem = 1'b0;
+      dmem_valid = 1'b0;
+      dmem_we = 1'b0;
+      dmem_wmask = 4'b0000;
+      trap = 1'b1;
+      trap_code = 32'd2;
+      pc_next = pc;
+    end
   end
 endmodule
