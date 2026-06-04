@@ -25,14 +25,12 @@ bool single_cycle() {
   update_mem_inputs();
   dut.clk = 0;
   dut.eval();
-  if (trap_hit()) {
+  if (!dut.rst && trap_hit()) {
     uint32_t trace_pc = 0;
     uint32_t trace_instr = 0;
     npc_trace_get_current(&trace_pc, &trace_instr);
-    if (!dut.rst) {
-      npc_trace_commit(trace_pc, trace_instr, dut.imem_addr,
-                       false, false, 0, 0, 0, 0);
-    }
+    npc_trace_commit(trace_pc, trace_instr, dut.imem_addr,
+                     false, false, 0, 0, 0, 0);
     return true;
   }
 
