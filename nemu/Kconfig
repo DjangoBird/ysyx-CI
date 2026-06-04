@@ -225,6 +225,16 @@ config DIFFTEST_REF_NAME
 config WATCHPOINT
   bool "Enable watchpoints"
   default y
+
+config LOOP_DETECT
+  bool "Enable loop detection"
+  default n
+
+config LOOP_DETECT_THRESHOLD
+  depends on LOOP_DETECT
+  int "Loop detection repeat threshold"
+  range 1 32
+  default 8
 endmenu
 
 if MODE_SYSTEM
