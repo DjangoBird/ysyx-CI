@@ -1,221 +1,121 @@
 #include <verilated.h>
-#include "Vtop.h"
+#ifdef NPC_ENABLE_NVBOARD
 #include <nvboard.h>
+#endif
 #include <cstdio>
-#include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include "npc_difftest.h"
+#include "npc_memory.h"
+#include "npc_runtime.h"
+#include "npc_step.h"
+#include "npc_sdb.h"
+#include "npc_trace.h"
 
-static Vtop dut;
-static bool sim_end = false;
-static uint32_t trap_pc = 0;
-static uint32_t trap_code = 0;
-static bool trace_en = false;
-static uint64_t cycle_cnt = 0;
-static uint32_t trace_pc_lo = 0;
-static uint32_t trace_pc_hi = 0;
-
-static const uint32_t PMEM_SIZE = 128u * 1024u * 1024u;
-static const uint32_t PMEM_BASE = 0x80000000u;
-static uint8_t pmem[PMEM_SIZE];
-
+#ifdef NPC_ENABLE_NVBOARD
 // 在 auto_bind.cpp 中定义
 void nvboard_bind_all_pins(Vtop *top);
+#endif
 
-extern "C" void npc_ebreak(int pc, int code) {
-  trap_pc = static_cast<uint32_t>(pc);
-  trap_code = static_cast<uint32_t>(code);
-  sim_end = true;
+struct CmdArgs {
+  const char *img_file = nullptr;
+  const char *diff_so = nullptr;
+  int diff_port = 1234;
+  bool batch = false;
+};
+
+static void usage(const char *prog) {
+  std::printf("Usage: %s [OPTION...] IMAGE\n", prog);
+  std::printf("  -b,--batch              run without interactive sdb\n");
+  std::printf("  -d,--diff=REF_SO        run DiffTest with reference REF_SO\n");
+  std::printf("  -p,--port=PORT          DiffTest port, kept for NEMU-compatible API\n");
+  std::printf("  -l,--log=FILE           write trace log to FILE\n");
+  std::printf("  --ftrace=ELF            load ELF symbols for NPC ftrace\n");
 }
 
-static inline bool in_pmem(uint32_t addr) {
-  return addr >= PMEM_BASE && addr < PMEM_BASE + PMEM_SIZE;
+static bool match_opt(const char *arg, const char *short_opt, const char *long_opt) {
+  return std::strcmp(arg, short_opt) == 0 || std::strcmp(arg, long_opt) == 0;
 }
 
-static inline uint32_t pmem_off(uint32_t addr) {
-  return addr - PMEM_BASE;
-}
-
-static uint32_t pmem_read32(uint32_t addr) {
-  if (!in_pmem(addr) || !in_pmem(addr + 3)) return 0;
-  uint32_t off = pmem_off(addr);
-  return (uint32_t)pmem[off] |
-         ((uint32_t)pmem[off + 1] << 8) |
-         ((uint32_t)pmem[off + 2] << 16) |
-         ((uint32_t)pmem[off + 3] << 24);
-}
-
-static void pmem_write32(uint32_t addr, uint32_t data, uint8_t wmask) {
-  if (!in_pmem(addr) || !in_pmem(addr + 3)) return;
-  uint32_t off = pmem_off(addr);
-  if (wmask & 0x1) pmem[off] = data & 0xff;
-  if (wmask & 0x2) pmem[off + 1] = (data >> 8) & 0xff;
-  if (wmask & 0x4) pmem[off + 2] = (data >> 16) & 0xff;
-  if (wmask & 0x8) pmem[off + 3] = (data >> 24) & 0xff;
-}
-
-static long load_img(const char *img_file) {
-  if (img_file == nullptr || std::strlen(img_file) == 0) {
-    std::printf("No image is given, start from empty memory.\n");
-    return 0;
-  }
-
-  FILE *fp = std::fopen(img_file, "rb");
-  if (fp == nullptr) {
-    std::perror("Failed to open image");
+static const char *opt_value(int *i, int argc, char **argv, const char *name) {
+  const char *eq = std::strchr(argv[*i], '=');
+  if (eq != nullptr) return eq + 1;
+  if (*i + 1 >= argc) {
+    std::fprintf(stderr, "Missing value for %s\n", name);
     std::exit(1);
   }
-
-  std::fseek(fp, 0, SEEK_END);
-  long size = std::ftell(fp);
-  std::fseek(fp, 0, SEEK_SET);
-
-  if (size < 0 || (uint64_t)size > PMEM_SIZE) {
-    std::fprintf(stderr, "Image is too large: %ld bytes\n", size);
-    std::fclose(fp);
-    std::exit(1);
-  }
-
-  size_t nread = std::fread(pmem, 1, (size_t)size, fp);
-  std::fclose(fp);
-  if (nread != (size_t)size) {
-    std::fprintf(stderr, "Failed to read image: expected %ld, got %zu\n", size, nread);
-    std::exit(1);
-  }
-
-  std::printf("Loaded image: %s, size = %ld bytes\n", img_file, size);
-  return size;
+  ++(*i);
+  return argv[*i];
 }
 
-static inline void update_mem_inputs() {
-  dut.imem_rdata = pmem_read32(dut.imem_addr);
-  dut.dmem_rdata = pmem_read32(dut.dmem_addr);
-}
-
-static inline bool trap_hit() {
-  return sim_end || dut.trap;
-}
-
-// 单个时钟周期：clk 0->1，各 eval 一次
-static bool single_cycle() {
-  update_mem_inputs();
-  dut.clk = 0;
-  dut.eval();
-  if (trap_hit()) return true;
-
-  update_mem_inputs();
-  bool trace_this_cycle = trace_en && (
-      cycle_cnt < 40 ||
-      (dut.imem_addr >= trace_pc_lo && dut.imem_addr <= trace_pc_hi)
-  );
-  if (trace_this_cycle) {
-    std::printf("[pre  %04llu] pc=0x%08x instr=0x%08x x1=0x%08x dmem_addr=0x%08x dmem_we=%u\n",
-                (unsigned long long)cycle_cnt,
-                dut.imem_addr,
-                dut.imem_rdata,
-                dut.dbg_x1_o,
-                dut.dmem_addr,
-                (unsigned)dut.dmem_we);
+static CmdArgs parse_args(int argc, char **argv) {
+  CmdArgs args;
+  for (int i = 1; i < argc; ++i) {
+    const char *arg = argv[i];
+    if (match_opt(arg, "-b", "--batch")) {
+      args.batch = true;
+    } else if (std::strncmp(arg, "--diff", 6) == 0 || std::strcmp(arg, "-d") == 0) {
+      args.diff_so = opt_value(&i, argc, argv, "--diff");
+    } else if (std::strncmp(arg, "--port", 6) == 0 || std::strcmp(arg, "-p") == 0) {
+      args.diff_port = std::atoi(opt_value(&i, argc, argv, "--port"));
+    } else if (std::strncmp(arg, "--log", 5) == 0 || std::strcmp(arg, "-l") == 0) {
+      setenv("NPC_TRACE_LOG", opt_value(&i, argc, argv, "--log"), 1);
+    } else if (std::strncmp(arg, "--ftrace", 8) == 0) {
+      setenv("NPC_FTRACE", "1", 1);
+      setenv("NPC_FTRACE_ELF", opt_value(&i, argc, argv, "--ftrace"), 1);
+    } else if (match_opt(arg, "-h", "--help")) {
+      usage(argv[0]);
+      std::exit(0);
+    } else if (arg[0] == '-') {
+      std::fprintf(stderr, "Unknown option: %s\n", arg);
+      usage(argv[0]);
+      std::exit(1);
+    } else if (args.img_file == nullptr) {
+      args.img_file = arg;
+    } else {
+      std::fprintf(stderr, "Unexpected argument: %s\n", arg);
+      usage(argv[0]);
+      std::exit(1);
+    }
   }
-  dut.clk = 1;
-  dut.eval();
-  if (trap_hit()) return true;
-
-  if (dut.dmem_valid && dut.dmem_we) {
-    pmem_write32(dut.dmem_addr, dut.dmem_wdata, dut.dmem_wmask);
-  }
-
-  if (trace_this_cycle) {
-    std::printf("[cycle %04llu] pc=0x%08x instr=0x%08x x1=0x%08x dmem_addr=0x%08x dmem_we=%u\n",
-                (unsigned long long)cycle_cnt,
-                dut.imem_addr,
-                dut.imem_rdata,
-                dut.dbg_x1_o,
-                dut.dmem_addr,
-                (unsigned)dut.dmem_we);
-  }
-  cycle_cnt++;
-
-  return false;
-}
-
-// 复位 n 个周期
-static void reset(int n) {
-  dut.rst = 1;
-  while (n-- > 0) {
-    (void)single_cycle();
-  }
-  dut.rst = 0;
+  return args;
 }
 
 int main(int argc, char **argv) {
   Verilated::commandArgs(argc, argv);
-
-  int sim_rc = 0;
-  bool saw_trap = false;
-
-  bool enable_gui = false;
+  CmdArgs args = parse_args(argc, argv);
+#ifdef NPC_ENABLE_NVBOARD
   const char *gui_env = std::getenv("NPC_GUI");
   if (gui_env != nullptr && std::strcmp(gui_env, "1") == 0) {
-    enable_gui = true;
+    gui_enabled = true;
   }
-  const char *trace_env = std::getenv("NPC_TRACE");
-  if (trace_env != nullptr && std::strcmp(trace_env, "1") == 0) {
-    trace_en = true;
-  }
-  const char *trace_pc_env = std::getenv("NPC_TRACE_PC");
-  if (trace_pc_env != nullptr) {
-    unsigned lo = 0, hi = 0;
-    if (std::sscanf(trace_pc_env, "%x-%x", &lo, &hi) == 2) {
-      trace_pc_lo = lo;
-      trace_pc_hi = hi;
-    }
-  }
+#endif
 
   std::memset(pmem, 0, sizeof(pmem));
-  if (argc >= 2) {
-    load_img(argv[1]);
-  } else {
-    load_img(nullptr);
-  }
+  long img_size = load_img(args.img_file);
 
-  if (enable_gui) {
+#ifdef NPC_ENABLE_NVBOARD
+  if (gui_enabled) {
     nvboard_bind_all_pins(&dut);
     nvboard_init();
   }
+#endif
 
-  // 上电复位 10 个周期
+  npc_trace_init(args.img_file);
   reset(10);
-
-  // 仿真主循环：每个周期更新 NVBoard + 跑一拍
-  while (!Verilated::gotFinish()) {
-    if (enable_gui) {
-      nvboard_update();
-    }
-    bool trapped = single_cycle();
-
-    if (trapped || trap_hit()) {
-      uint32_t code = dut.trap ? dut.trap_code : trap_code;
-      uint32_t pc = dut.trap ? dut.imem_addr : trap_pc;
-      saw_trap = true;
-      if (code == 0) {
-        std::printf("HIT GOOD TRAP at pc = 0x%08x\n", pc);
-        sim_rc = 0;
-      } else {
-        std::printf("HIT BAD TRAP at pc = 0x%08x, code = %u\n", pc, code);
-        sim_rc = 1;
-      }
-      break;
-    }
+  npc_difftest_init(args.diff_so, img_size, args.diff_port);
+  if (args.batch) {
+    sdb_set_batch_mode();
   }
+  sdb_mainloop();
+  npc_trace_close();
 
-  if (!saw_trap) {
-    std::printf("Simulation ended without trap\n");
-    sim_rc = 2;
-  }
-
-  if (enable_gui) {
+#ifdef NPC_ENABLE_NVBOARD
+  if (gui_enabled) {
     nvboard_quit();
   }
-  return sim_rc;
+#endif
+
+  return dut.trap && dut.trap_code != 0 ? 1 : 0;
 }

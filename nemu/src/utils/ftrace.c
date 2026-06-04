@@ -179,6 +179,7 @@ static int ftrace_depth = 0;
 void ftrace_record_call(vaddr_t pc, vaddr_t target) {
   vaddr_t symaddr = 0;
   const char *name = ftrace_find_symbol(target, &symaddr);
+  (void)name;
   // indent
   char ind[64] = {0};
   int n = ftrace_depth < 60 ? ftrace_depth : 60;
@@ -192,6 +193,7 @@ void ftrace_record_ret(vaddr_t pc, vaddr_t target) {
   if (ftrace_depth > 0) ftrace_depth--;
   vaddr_t symaddr = 0;
   const char *name = ftrace_find_symbol(target, &symaddr);
+  (void)name;
   char ind[64] = {0};
   int n = ftrace_depth < 60 ? ftrace_depth : 60;
   memset(ind, ' ', n);

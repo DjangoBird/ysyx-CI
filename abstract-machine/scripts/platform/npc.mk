@@ -12,13 +12,15 @@ CFLAGS    += -fdata-sections -ffunction-sections
 LDSCRIPTS += $(AM_HOME)/scripts/linker.ld
 LDFLAGS   += --defsym=_pmem_start=0x80000000 --defsym=_entry_offset=0x0
 LDFLAGS   += --gc-sections -e _start
+NPCFLAGS_BASE += -l $(shell dirname $(IMAGE).elf)/npc-log.txt
+NPCFLAGS_BASE += --ftrace $(IMAGE).elf
 
 MAINARGS_MAX_LEN = 64
 MAINARGS_PLACEHOLDER = the_insert-arg_rule_in_Makefile_will_insert_mainargs_here
 CFLAGS += -DMAINARGS_MAX_LEN=$(MAINARGS_MAX_LEN) -DMAINARGS_PLACEHOLDER=$(MAINARGS_PLACEHOLDER)
 
 insert-arg: image
-	@python $(AM_HOME)/tools/insert-arg.py $(IMAGE).bin $(MAINARGS_MAX_LEN) $(MAINARGS_PLACEHOLDER) "$(mainargs)"
+	@python3 $(AM_HOME)/tools/insert-arg.py $(IMAGE).bin $(MAINARGS_MAX_LEN) $(MAINARGS_PLACEHOLDER) "$(mainargs)"
 
 image: image-dep
 	@$(OBJDUMP) -d $(IMAGE).elf > $(IMAGE).txt
@@ -26,6 +28,12 @@ image: image-dep
 	@$(OBJCOPY) -S --set-section-flags .bss=alloc,contents -O binary $(IMAGE).elf $(IMAGE).bin
 
 run: insert-arg
-	$(MAKE) -C $(NPC_HOME) run IMG=$(IMAGE).bin
+	$(MAKE) -C $(NPC_HOME) run ARGS="$(NPCFLAGS_BASE)" IMG=$(IMAGE).bin
 
-.PHONY: insert-arg
+run-batch: insert-arg
+	$(MAKE) -C $(NPC_HOME) run ARGS="$(NPCFLAGS_BASE) -b" IMG=$(IMAGE).bin
+
+difftest: insert-arg
+	$(MAKE) -C $(NPC_HOME) run NPC_DIFF=1 ARGS="$(NPCFLAGS_BASE) -b" IMG=$(IMAGE).bin
+
+.PHONY: insert-arg run run-batch difftest
