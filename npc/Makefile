@@ -79,6 +79,7 @@ all: $(BIN)
 
 $(BIN): $(VSRCS) $(CSRCS) $(NVBOARD_ARCHIVE) $(LIBCAPSTONE)
 	@rm -rf $(OBJ_DIR)
+	@mkdir -p $(BUILD_DIR)
 	$(VERILATOR) $(VERILATOR_FLAGS) \
 		--top-module $(TOPNAME) $(VSRCS) $(CSRCS) \
 		$(addprefix -CFLAGS , $(CXXFLAGS)) \

@@ -212,6 +212,44 @@ make all
 make lint
 ```
 
+## 推荐测试顺序
+
+建议按下面顺序测试 NPC，先排除构建和工具链问题，再检查 AM 运行，最后打开 DiffTest。
+
+1. 检查 RTL lint：
+
+```bash
+cd /home/django/ysyx-workbench/npc
+make lint
+```
+
+2. 构建 Verilator 模型：
+
+```bash
+make all
+```
+
+3. 跑一个最小 AM cpu-test：
+
+```bash
+cd /home/django/ysyx-workbench/am-kernels/tests/cpu-tests
+make ARCH=riscv32e-npc ALL=dummy run-batch
+```
+
+4. 跑一组基础指令测试：
+
+```bash
+make ARCH=riscv32e-npc ALL="add bit shift if-else load-store movsx" run-batch
+```
+
+5. 打开 DiffTest 跑单个测试：
+
+```bash
+make ARCH=riscv32e-npc ALL=dummy difftest
+```
+
+`difftest` 会让 NPC 自动构建并使用 `../nemu/build/riscv32-nemu-interpreter-so`。注意这会把 NEMU 配置切到 `TARGET_SHARE`，之后如果要直接运行 NEMU，需要把 NEMU 配置切回 `TARGET_NATIVE_ELF`。
+
 ## 运行
 
 `IMG` 是要加载到 NPC 客户机内存的裸机程序镜像。它会被放到客户机物理地址 `0x80000000` 开始的位置。

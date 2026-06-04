@@ -195,6 +195,10 @@ static int cmd_d(char *args) {
 }
 
 static int cmd_loop(char *args) {
+#ifndef CONFIG_LOOP_DETECT
+  printf("Loop detection is disabled by CONFIG_LOOP_DETECT=n.\n");
+  return 0;
+#else
   char *arg = strtok(NULL, " ");
 
   if (arg == NULL) {
@@ -220,6 +224,7 @@ static int cmd_loop(char *args) {
     printf("Loop detection threshold set to %d\n", threshold);
   }
   return 0;
+#endif
 }
 
 static int cmd_p(char *args){
