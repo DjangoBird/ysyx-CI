@@ -38,7 +38,7 @@ static const char *exception_name(word_t cause) {
 #endif
 
 word_t isa_raise_intr(word_t NO, vaddr_t epc) {
-  IFDEF(CONFIG_ETRACE, if (ETRACE_COND) {
+  IFDEF(CONFIG_ETRACE, {
     log_write("etrace cause=" FMT_WORD " (%s) epc=" FMT_WORD
         " target=" FMT_WORD "\n", NO, exception_name(NO), epc, cpu.mtvec);
   });
