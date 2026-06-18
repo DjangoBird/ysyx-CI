@@ -52,6 +52,30 @@ static void decode_operand(Decode *s, int *rd, word_t *src1, word_t *src2, word_
 static int decode_exec(Decode *s) {
   s->dnpc = s->snpc;
 
+  uint32_t inst = s->isa.inst;
+
+  #define csr_addr() BITS(inst, 31, 20)
+  #define csr_read(csr) ({ \
+    word_t val = 0; \
+    switch (csr) { \
+      case 0x300: val = cpu.mstatus; break; \
+      case 0x305: val = cpu.mtvec; break; \
+      case 0x341: val = cpu.mepc; break; \
+      case 0x342: val = cpu.mcause; break; \
+      default: panic("unsupported csr = 0x%x", (uint32_t)(csr)); \
+    } \
+    val; \
+  })
+  #define csr_write(csr, val) do { \
+    switch (csr) { \
+      case 0x300: cpu.mstatus = (val); break; \
+      case 0x305: cpu.mtvec = (val); break; \
+      case 0x341: cpu.mepc = (val); break; \
+      case 0x342: cpu.mcause = (val); break; \
+      default: panic("unsupported csr = 0x%x", (uint32_t)(csr)); \
+    } \
+  } while (0)
+
 #define INSTPAT_INST(s) ((s)->isa.inst)
 #define INSTPAT_MATCH(s, name, type, ... /* execute body */ ) { \
   int rd = 0; \
@@ -192,10 +216,29 @@ static int decode_exec(Decode *s) {
   // U-type load upper imm
   INSTPAT("??????? ????? ????? ??? ????? 01101 11", lui    , U, R(rd) = imm);
 
+  INSTPAT("0000000 00000 00000 000 00000 11100 11", ecall  , N, s->dnpc = isa_raise_intr(11, s->pc));
+  INSTPAT("0011000 00010 00000 000 00000 11100 11", mret   , N, s->dnpc = cpu.mepc);
+  INSTPAT("??????? ????? ????? 001 ????? 11100 11", csrrw  , I, {
+    word_t old = csr_read(csr_addr());
+    csr_write(csr_addr(), src1);
+    R(rd) = old;
+  });
+  INSTPAT("??????? ????? ????? 010 ????? 11100 11", csrrs  , I, {
+    word_t old = csr_read(csr_addr());
+    if (BITS(INSTPAT_INST(s), 19, 15) != 0) {
+      csr_write(csr_addr(), old | src1);
+    }
+    R(rd) = old;
+  });
+
   INSTPAT("0000000 00001 00000 000 00000 11100 11", ebreak , N, NEMUTRAP(s->pc, R(10))); // R(10) is $a0
   
   INSTPAT("??????? ????? ????? ??? ????? ????? ??", inv    , N, INV(s->pc));
   INSTPAT_END();
+
+  #undef csr_write
+  #undef csr_read
+  #undef csr_addr
 
   R(0) = 0; // reset $zero to 0
 
