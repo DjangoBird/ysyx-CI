@@ -15,7 +15,34 @@
 
 #include <isa.h>
 
+#ifdef CONFIG_ETRACE
+static const char *exception_name(word_t cause) {
+  switch (cause) {
+    case 0:  return "instruction address misaligned";
+    case 1:  return "instruction access fault";
+    case 2:  return "illegal instruction";
+    case 3:  return "breakpoint";
+    case 4:  return "load address misaligned";
+    case 5:  return "load access fault";
+    case 6:  return "store address misaligned";
+    case 7:  return "store access fault";
+    case 8:  return "environment call from U-mode";
+    case 9:  return "environment call from S-mode";
+    case 11: return "environment call from M-mode";
+    case 12: return "instruction page fault";
+    case 13: return "load page fault";
+    case 15: return "store page fault";
+    default: return "unknown";
+  }
+}
+#endif
+
 word_t isa_raise_intr(word_t NO, vaddr_t epc) {
+  IFDEF(CONFIG_ETRACE, {
+    log_write("etrace cause=" FMT_WORD " (%s) epc=" FMT_WORD
+        " target=" FMT_WORD "\n", NO, exception_name(NO), epc, cpu.mtvec);
+  });
+
   cpu.mepc = epc;
   cpu.mcause = NO;
   return cpu.mtvec;
