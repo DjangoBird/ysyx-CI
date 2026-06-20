@@ -72,10 +72,27 @@ module minirv_core (
   wire [2:0]  load_funct3;
   wire [31:0] wb_data;
   wire [31:0] pc_next;
+  wire [31:0] csr_read_data;
+  wire [31:0] mtvec;
+  wire [31:0] mepc;
+  wire [11:0] csr_addr;
+  wire        csr_write_enable;
+  wire [31:0] csr_write_data;
+  wire        ecall;
+  wire        if_valid;
+  wire        if_ready;
+  wire        id_valid;
+  wire        id_ready;
+  wire        ex_valid;
+  wire        ex_ready;
+  wire        mem_valid;
+  wire        mem_ready;
 
   npc_wb_stage u_wb (
     .clk     (clk),
     .rst     (rst),
+    .in_valid(mem_valid),
+    .in_ready(mem_ready),
     .pc_next (pc_next),
     .wb_en   (wb_en),
     .wb_idx  (wb_idx),
@@ -102,12 +119,18 @@ module minirv_core (
   npc_if_stage u_if (
     .pc         (pc),
     .imem_rdata (imem_rdata),
+    .out_ready  (if_ready),
+    .out_valid  (if_valid),
     .imem_addr  (imem_addr),
     .instr      (instr),
     .pc_next_seq(pc_next_seq)
   );
 
   npc_id_stage u_id (
+    .in_valid (if_valid),
+    .in_ready (if_ready),
+    .out_valid(id_valid),
+    .out_ready(id_ready),
     .instr    (instr),
     .opcode   (opcode),
     .rd_raw   (rd_raw),
@@ -155,7 +178,25 @@ module minirv_core (
   assign rs2_val = read_reg(rs2_idx);
   assign a0_val = dbg_x10;
 
+  npc_csr_file u_csr (
+    .clk          (clk),
+    .rst          (rst),
+    .read_addr    (imm_i[11:0]),
+    .read_data    (csr_read_data),
+    .write_enable (csr_write_enable),
+    .write_addr   (csr_addr),
+    .write_data   (csr_write_data),
+    .ecall        (ecall),
+    .ecall_pc     (pc),
+    .mtvec        (mtvec),
+    .mepc         (mepc)
+  );
+
   npc_ex_stage u_ex (
+    .in_valid     (id_valid),
+    .in_ready     (id_ready),
+    .out_valid    (ex_valid),
+    .out_ready    (ex_ready),
     .opcode        (opcode),
     .rd_raw        (rd_raw),
     .funct3        (funct3),
@@ -174,6 +215,9 @@ module minirv_core (
     .pc            (pc),
     .pc_next_seq   (pc_next_seq),
     .is_ebreak     (is_ebreak),
+    .csr_read_data (csr_read_data),
+    .mtvec         (mtvec),
+    .mepc          (mepc),
     .wb_en         (wb_en),
     .wb_idx        (wb_idx),
     .wb_data_pre   (wb_data_pre),
@@ -187,10 +231,18 @@ module minirv_core (
     .load_funct3   (load_funct3),
     .pc_next       (pc_next),
     .trap          (trap),
-    .trap_code     (trap_code)
+    .trap_code     (trap_code),
+    .csr_addr      (csr_addr),
+    .csr_write_enable(csr_write_enable),
+    .csr_write_data(csr_write_data),
+    .ecall         (ecall)
   );
 
   npc_mem_stage u_mem (
+    .in_valid      (ex_valid),
+    .in_ready      (ex_ready),
+    .out_valid     (mem_valid),
+    .out_ready     (mem_ready),
     .wb_from_mem   (wb_from_mem),
     .load_funct3   (load_funct3),
     .load_byte_off (load_byte_off),

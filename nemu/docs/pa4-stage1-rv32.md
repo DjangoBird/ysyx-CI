@@ -15,6 +15,8 @@ RT-Thread 位于独立仓库 `~/Templates/rt-thread-am`，相关提交：
 
 ```text
 1f0b649 bsp: support RV32 AM context switching
+4ef7562 bsp: support native thread startup
+72ced18 bsp: enable full RV32 RT-Thread environment
 ```
 
 ## 1. 阶段目标
@@ -276,19 +278,30 @@ RT-Thread 启动过程不会调用它。
 ### 7.3 RV32 freestanding 构建
 
 本机使用 `riscv64-unknown-elf-gcc` 编译 RV32，但工具链没有完整 libc 头文件。
-为了将范围限制在 RT-Thread 内核启动，本次配置关闭了依赖完整 POSIX/libc 的组件：
+完整 RT-Thread 配置和 AM 应用还会编译 DFS、FinSH、RTC、UTest、snake 和 fceux，
+因此仅有 GCC 内部头文件是不够的。
 
-- DFS
-- FinSH/MSH
-- RTC 和 cputime
-- `/dev/null`、`/dev/zero`、random
-- UTest 和 ADT
-- AM 应用集成
+本机将 `picolibc-riscv64-unknown-elf` 解压到用户目录：
 
-保留内核线程、调度器、堆、UART、设备框架和用户 main。BSP 添加了最小标准头兼容
-层，并过滤 RT-Thread 的通用 libc 实现，实际字符串和格式化功能由 AM klib 提供。
+```bash
+cd /tmp
+apt download picolibc-riscv64-unknown-elf
+mkdir -p ~/.local/riscv-picolibc
+dpkg-deb -x picolibc-riscv64-unknown-elf_*.deb ~/.local/riscv-picolibc
+```
 
-这属于当前工具链和阶段范围下的裁剪，不代表这些 RT-Thread 组件本身不支持 RV32。
+`abstract-machine/scripts/isa/riscv.mk` 会检测：
+
+```text
+~/.local/riscv-picolibc/usr/lib/picolibc/riscv64-unknown-elf/include
+```
+
+如果该目录存在，则仅通过 `-isystem` 使用 picolibc 的标准头文件。最终镜像仍由
+AM/klib 和 RT-Thread 自身实现链接，并不链接 picolibc 运行库。
+
+RT-Thread BSP 显式加入 `common/extension` 和 `fcntl/octal` 头文件目录，使
+RT-Thread 自己的 `sys/types.h`、`sys/errno.h` 和 POSIX 标志优先于 picolibc。
+默认配置保持开启 FinSH/MSH、DFS、RTC、UTest、内存检查和 AM 应用集成。
 
 ### 7.4 构建和运行
 
@@ -302,18 +315,34 @@ CCACHE_DISABLE=1 make ARCH=riscv32-nemu run-batch
 预期输出：
 
 ```text
-am-apps.data.size = 0, am-apps.bss.size = 0
-heap: [0x8001b000 - 0x88000000]
+am-apps.data.size = 13060, am-apps.bss.size = 415316
+heap: [0x802db000 - 0x88000000]
 
  \ | /
 - RT -     Thread Operating System
  / | \     5.0.1
  2006 - 2022 Copyright by RT-Thread team
+[I/utest] utest is initialize success.
+[I/utest] total utest testcase num: (0)
 Hello RISC-V!
+msh />help
+RT-Thread shell commands:
+...
+utest_list       - output all utest testcase
+am_fceux_am      - AM fceux_am
+am_snake         - AM snake
+am_typing_game   - AM typing_game
+am_microbench    - AM microbench
+am_hello         - AM hello
+
+msh />utest_list
+[I/utest] Commands list :
+msh />
 ```
 
-RT-Thread 进入 idle 后不会自行退出，`run-batch` 使用 `Ctrl-C` 或 `timeout` 结束是
-正常行为。
+UART 驱动会依次注入 `help/date/version/free/ps/pwd/ls/memtrace/memcheck/utest_list`
+命令，因此无需手工输入即可得到讲义中的验收输出。命令执行完后 Shell 等待后续输入，
+`run-batch` 使用 `Ctrl-C` 或 `timeout` 结束是正常行为。
 
 ## 8. 讲义问题回答
 
@@ -403,8 +432,9 @@ Context 外额外压栈。若参数数量更多，可以让 Context 从辅助跳
 4. 为应用段添加 `__am_apps` 前缀，集中管理 data/BSS。
 5. 生成 Shell 包装入口和最终源码清单。
 
-启动应用前，包装代码会恢复应用 data、清零 BSS 并设置独立 heap。当前阶段关闭了
-AM 应用集成，因此只分析了脚本，未继续做运行验证。
+启动应用前，包装代码会恢复应用 data、清零 BSS 并设置独立 heap。完整构建已验证
+`am_hello`、`am_microbench`、`am_typing_game`、`am_snake` 和 `am_fceux_am`
+均成功注册为 Shell 命令。
 
 ## 9. 当前边界
 
@@ -415,7 +445,9 @@ AM 应用集成，因此只分析了脚本，未继续做运行验证。
 - `kcontext()` 和参数传递。
 - CTE 根据返回 Context 切换 `sp`。
 - `yield-os` 双线程切换。
-- RT-Thread 线程创建、主动上下文切换和启动。
+- RT-Thread 线程创建、主动上下文切换和 native/RV32 启动。
+- FinSH/MSH、DFS、RTC、UTest 和内存检查命令。
+- AM 应用构建、符号隔离和 Shell 命令注册。
 - ETRACE。
 
 尚未完成：
@@ -424,9 +456,9 @@ AM 应用集成，因此只分析了脚本，未继续做运行验证。
 - 时钟中断和抢占调度。
 - Nanos-lite 上下文切换。
 - 用户进程、系统调用、VME 和分页。
-- RT-Thread DFS、Shell、RTC 和 AM 应用集成。
 
 ## 10. 参考
 
 - PA4.1 多道程序：<https://ysyx.oscc.cc/docs/ics-pa/4.1.html>
 - RT-Thread AM：<https://github.com/NJU-ProjectN/rt-thread-am>
+- NPC C5 与 RT-Thread：[`c5-npc-rtthread.md`](c5-npc-rtthread.md)

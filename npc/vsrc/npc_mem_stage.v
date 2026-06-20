@@ -1,6 +1,10 @@
 `include "minirv_defs.vh"
 
 module npc_mem_stage(
+    input  wire        in_valid,
+    output wire        in_ready,
+    output wire        out_valid,
+    input  wire        out_ready,
     input  wire        wb_from_mem,
     input  wire [2:0]  load_funct3,
     input  wire [1:0]  load_byte_off,
@@ -8,6 +12,9 @@ module npc_mem_stage(
     input  wire [31:0] wb_data_pre,
     output reg  [31:0] wb_data
 );
+  assign in_ready = out_ready;
+  assign out_valid = in_valid;
+
   always @(*) begin
     if (!wb_from_mem) begin
       wb_data = wb_data_pre;
