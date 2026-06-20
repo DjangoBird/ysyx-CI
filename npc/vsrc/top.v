@@ -15,8 +15,14 @@ module top(
   output [31:0] dmem_wdata,
   input  [31:0] dmem_rdata,
 
-  output        trap,
-  output [31:0] trap_code,
+  output reg        trap,
+  output reg [31:0] trap_code,
+  output        commit_valid,
+  output [31:0] commit_pc,
+  output [31:0] commit_instr,
+  output [31:0] commit_next_pc,
+  output        commit_trap,
+  output [31:0] commit_trap_code,
   output [31:0] dbg_x0_o,
   output [31:0] dbg_x1_o,
   output [31:0] dbg_x2_o,
@@ -55,6 +61,20 @@ module top(
   wire [31:0] dbg_x13;
   wire [31:0] dbg_x14;
   wire [31:0] dbg_x15;
+  wire core_trap;
+  wire [31:0] core_trap_code;
+  assign commit_trap = commit_valid && core_trap;
+  assign commit_trap_code = core_trap_code;
+
+  always @(posedge clk or posedge rst) begin
+    if (rst) begin
+      trap <= 1'b0;
+      trap_code <= 32'b0;
+    end else if (commit_valid && core_trap) begin
+      trap <= 1'b1;
+      trap_code <= core_trap_code;
+    end
+  end
 
   minirv_core u_core (
     .clk    (clk),
@@ -67,8 +87,12 @@ module top(
     .dmem_addr (dmem_addr),
     .dmem_wdata(dmem_wdata),
     .dmem_rdata(dmem_rdata),
-    .trap      (trap),
-    .trap_code (trap_code),
+    .trap      (core_trap),
+    .trap_code (core_trap_code),
+    .commit_valid(commit_valid),
+    .commit_pc(commit_pc),
+    .commit_instr(commit_instr),
+    .commit_next_pc(commit_next_pc),
     .dbg_pc (dbg_pc),
     .dbg_x0 (dbg_x0),
     .dbg_x1 (dbg_x1)

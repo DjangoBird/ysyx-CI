@@ -19,6 +19,10 @@ module minirv_core (
   // trap interface
   output wire         trap,
   output wire [31:0]  trap_code,
+  output wire         commit_valid,
+  output wire [31:0]  commit_pc,
+  output wire [31:0]  commit_instr,
+  output wire [31:0]  commit_next_pc,
 
   // debug observation port
   output wire [31:0]  dbg_pc,
@@ -117,6 +121,8 @@ module minirv_core (
   );
 
   npc_if_stage u_if (
+    .clk        (clk),
+    .rst        (rst),
     .pc         (pc),
     .imem_rdata (imem_rdata),
     .out_ready  (if_ready),
@@ -252,5 +258,9 @@ module minirv_core (
   );
 
   assign dbg_pc = pc;
+  assign commit_valid = mem_valid;
+  assign commit_pc = pc;
+  assign commit_instr = instr;
+  assign commit_next_pc = pc_next;
 
 endmodule

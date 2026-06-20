@@ -62,6 +62,8 @@ static int decode_exec(Decode *s) {
       case 0x305: val = cpu.mtvec; break; \
       case 0x341: val = cpu.mepc; break; \
       case 0x342: val = cpu.mcause; break; \
+      case 0xf11: val = 0x79737978; break; \
+      case 0xf12: val = 22040000; break; \
       default: panic("unsupported csr = 0x%x", (uint32_t)(csr)); \
     } \
     val; \
