@@ -461,3 +461,4 @@ Context 外额外压栈。若参数数量更多，可以让 Context 从辅助跳
 
 - PA4.1 多道程序：<https://ysyx.oscc.cc/docs/ics-pa/4.1.html>
 - RT-Thread AM：<https://github.com/NJU-ProjectN/rt-thread-am>
+- NPC C5 与 RT-Thread：[`c5-npc-rtthread.md`](c5-npc-rtthread.md)

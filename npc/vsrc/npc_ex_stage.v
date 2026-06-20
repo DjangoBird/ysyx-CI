@@ -18,6 +18,9 @@ module npc_ex_stage(
     input  wire [31:0] pc,
     input  wire [31:0] pc_next_seq,
     input  wire        is_ebreak,
+    input  wire [31:0] csr_read_data,
+    input  wire [31:0] mtvec,
+    input  wire [31:0] mepc,
     output reg         wb_en,
     output reg  [3:0]  wb_idx,
     output reg  [31:0] wb_data_pre,
@@ -31,7 +34,11 @@ module npc_ex_stage(
     output reg  [2:0]  load_funct3,
     output reg  [31:0] pc_next,
     output reg         trap,
-    output reg  [31:0] trap_code
+    output reg  [31:0] trap_code,
+    output reg  [11:0] csr_addr,
+    output reg         csr_write_enable,
+    output reg  [31:0] csr_write_data,
+    output reg         ecall
 );
   wire [31:0] load_addr = rs1_val + imm_i;
   wire [31:0] store_addr = rs1_val + imm_s;
@@ -46,6 +53,11 @@ module npc_ex_stage(
                   (rs1_raw == 5'd0) &&
                   (rd_raw == 5'd0) &&
                   (imm_i[11:0] == 12'h000);
+  wire is_mret = (opcode == `OPCODE_SYSTEM) &&
+                 (funct3 == 3'b000) &&
+                 (rs1_raw == 5'd0) &&
+                 (rd_raw == 5'd0) &&
+                 (imm_i[11:0] == 12'h302);
   reg illegal_instr;
 
   always @(*) begin
@@ -67,6 +79,10 @@ module npc_ex_stage(
     pc_next = pc_next_seq;
     trap = 1'b0;
     trap_code = 32'b0;
+    csr_addr = imm_i[11:0];
+    csr_write_enable = 1'b0;
+    csr_write_data = 32'b0;
+    ecall = 1'b0;
 
     case (opcode)
       `OPCODE_OP: begin
@@ -323,9 +339,21 @@ module npc_ex_stage(
           trap_code = a0_val;
           pc_next = pc;
         end else if (is_ecall) begin
-          trap = 1'b1;
-          trap_code = 32'd1;
-          pc_next = pc;
+          ecall = 1'b1;
+          pc_next = mtvec;
+        end else if (is_mret) begin
+          pc_next = mepc;
+        end else if ((funct3 == 3'b001 || funct3 == 3'b010) &&
+                     rd_raw < 5'd16 && rs1_raw < 5'd16) begin
+          wb_en = (rd_idx != 4'd0);
+          wb_data_pre = csr_read_data;
+          if (funct3 == 3'b001) begin
+            csr_write_enable = 1'b1;
+            csr_write_data = rs1_val;
+          end else begin
+            csr_write_enable = (rs1_raw != 5'd0);
+            csr_write_data = csr_read_data | rs1_val;
+          end
         end else begin
           illegal_instr = 1'b1;
         end
@@ -342,6 +370,8 @@ module npc_ex_stage(
       dmem_valid = 1'b0;
       dmem_we = 1'b0;
       dmem_wmask = 4'b0000;
+      csr_write_enable = 1'b0;
+      ecall = 1'b0;
       trap = 1'b1;
       trap_code = 32'd2;
       pc_next = pc;
