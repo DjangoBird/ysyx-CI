@@ -1,7 +1,8 @@
 # B1：NPC 级间总线重构
 
-本文记录 B1 讲义“重构 NPC”部分的实现。范围仅包含处理器内部 IFU、IDU、EXU、
-MEMU 和 WBU 之间的消息通信；尚未进入后续 SimpleBus、AXI 或 SoC 接入。
+本文记录 B1 讲义“重构 NPC”和“支持 SimpleBus 的 IFU”部分的实现。范围包含
+处理器内部级间消息通信、固定一周期取指总线和多周期 DiffTest；尚未实现
+SimpleBus LSU、完整握手版本、AXI 或 SoC 接入。
 
 ## 1. 重构目标
 
@@ -21,8 +22,8 @@ IFU -> instruction -> IDU -> decode fields -> EXU -> writeback fields -> WBU
 - `ready`：下游声明当前可以接收消息。
 - `fire = valid && ready`：双方确认本周期完成一次消息传递。
 
-当前仍是单周期 NPC，WBU 永远 ready，因此握手每周期完成。重构改变的是模块通信
-协议和状态更新条件，不改变 ISA 行为和每条指令一个周期的微结构。
+完成第一步重构时仍保持单周期行为。加入 SimpleBus IFU 后，每条普通指令至少需要
+两个周期，但后续模块的接口和提交语义无需重新设计。
 
 ## 2. Chisel 消息接口
 
@@ -126,9 +127,77 @@ Chisel 顶层用 `execute.io.out.fire` 门控访存和 CSR 副作用，用
 当前先固定消息边界和提交语义。后续升级时，功能模块的职责和消息内容可以复用，
 控制变化集中在级间连接、相关处理和存储器总线上。
 
-## 6. 验证
+## 6. SimpleBus IFU
 
-### RTL 检查
+### 6.1 时序
+
+讲义中的第一版 SimpleBus 只有取指地址和返回数据，存储器固定在下一周期返回：
+
+```text
+cycle N:     IFU 输出 PC，发起取指
+cycle N + 1: IFU 接收指令，向 IDU 发送有效消息
+```
+
+IFU 使用两态状态机：
+
+```text
+idle -> waitResponse -> idle
+```
+
+- `idle`：地址已经由 `imem_addr` 输出，本周期末登记存储器响应。
+- `waitResponse`：`out.valid = 1`，等待下游 `ready`。
+- `out.fire`：指令成功交给后续模块，返回 `idle` 请求下一条指令。
+
+PC 只在 WBU 提交时更新，所以 `waitResponse` 遭遇反压时地址和 PC 都保持稳定。
+
+### 6.2 仿真存储器
+
+C++ 仿真环境使用 `imem_response` 保存同步读响应：
+
+```text
+本周期输入 imem_response
+  -> RTL 计算并输出 imem_addr
+  -> 时钟上升沿
+  -> imem_response = pmem_read32(imem_addr)
+  -> 下一周期送回 RTL
+```
+
+本阶段只修改 IFU。LSU 仍是组合访问，因此拉低时钟求值出 `dmem_addr` 后，需要立即
+回填 `dmem_rdata` 并再次求值，确保 load 在提交前得到正确数据。
+
+## 7. 多周期 DiffTest
+
+单周期实现可以近似认为“一拍一条指令”，加入同步取指后这个假设不再成立。顶层新增
+以下提交观察信号：
+
+| 信号 | 含义 |
+| --- | --- |
+| `commit_valid` | WBU 本周期提交了一条指令 |
+| `commit_pc` | 被提交指令的 PC |
+| `commit_instr` | 被提交的指令 |
+| `commit_next_pc` | 提交后的下一 PC |
+| `commit_trap` | 该提交触发 trap |
+
+C++ 每个时钟周期都推进 DUT，但只有 `commit_valid` 时才：
+
+1. 输出 itrace/mtrace/ftrace。
+2. 让 NEMU REF 执行一条指令。
+3. 比较提交后的 GPR 和 PC。
+
+因此 IFU 的请求周期不会错误地让 REF 前进。
+
+NPC 串口位于 PMEM 外，而 RV32E DiffTest REF 配置没有设备。对 MMIO 指令不能直接
+调用 `ref_difftest_exec(1)`，否则 REF 会访问越界。此时 DUT 正常提交，然后通过
+`npc_difftest_skip_ref()` 将 DUT 的 GPR 和下一 PC 同步给 REF，再继续比较后续指令。
+
+为使启动代码可在 REF 中执行，NEMU 同步支持只读 CSR：
+
+- `mvendorid = 0x79737978`
+- `marchid = 22040000`
+
+## 8. 验证
+
+### 8.1 RTL 检查
 
 ```bash
 cd ~/ysyx-workbench/npc
@@ -139,7 +208,7 @@ sbt run
 
 三项均通过：手写 Verilog lint、Chisel 编译和 Chisel Verilog elaboration。
 
-### RV32E 指令回归
+### 8.2 RV32E 指令回归
 
 ```bash
 cd ~/ysyx-workbench/am-kernels/tests/cpu-tests
@@ -149,7 +218,18 @@ CCACHE_DISABLE=1 make ARCH=riscv32e-npc \
 
 7 项测试均 `PASS`。
 
-### 异常和上下文切换
+### 8.3 多周期 DiffTest
+
+```bash
+cd ~/ysyx-workbench/am-kernels/tests/cpu-tests
+CCACHE_DISABLE=1 make ARCH=riscv32e-npc ALL=dummy difftest
+CCACHE_DISABLE=1 make ARCH=riscv32e-npc \
+  ALL="add load-store" difftest
+```
+
+`dummy`、`add` 和 `load-store` 均通过，覆盖普通提交、MMIO skip、算术和访存。
+
+### 8.4 异常和上下文切换
 
 ```bash
 cd ~/ysyx-workbench/am-kernels/kernels/yield-os
@@ -158,7 +238,7 @@ CCACHE_DISABLE=1 make ARCH=riscv32e-npc run-batch
 
 持续输出 `ABAB...`，说明 CSR、异常入口、`mret` 和 Context 切换未受重构影响。
 
-### RT-Thread
+### 8.5 RT-Thread
 
 ```bash
 cd ~/Templates/rt-thread-am/bsp/abstract-machine
@@ -173,12 +253,13 @@ msh />utest_list
 msh />
 ```
 
-### DiffTest 已知边界
+## 9. 当前边界
 
-当前 AM TRM 在程序入口读取 `mvendorid` 和 `marchid`，但 NEMU RV32E REF 尚未实现
-`mvendorid(0xf11)`，因此 DiffTest 会在进入测试主体前由参考模型报 unsupported CSR。
-该问题在总线重构前已经存在，不属于本次级间握手改动。
+- IFU 采用固定一周期响应，尚无 `reqValid/reqReady/respValid/respReady`。
+- LSU 仍为组合访问，尚未按 SimpleBus 改造成多周期。
+- 尚未加入随机存储器延迟。
+- `mcycle` 表示 NPC 物理周期，和按指令执行的 NEMU REF 不应直接比较。
 
-## 7. 参考
+## 10. 参考
 
 - B1 总线：<https://ysyx.oscc.cc/docs/2407/b/1.html>

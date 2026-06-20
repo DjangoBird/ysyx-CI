@@ -56,7 +56,11 @@ bool single_cycle() {
                      trace_mem_valid, trace_mem_we, trace_mem_wmask,
                      trace_mem_addr, trace_mem_wdata, trace_mem_rdata);
     if (!commit_trap) {
-      npc_difftest_step(commit_pc, commit_next_pc);
+      if (trace_mem_valid && !in_pmem(trace_mem_addr)) {
+        npc_difftest_skip_ref(commit_next_pc);
+      } else {
+        npc_difftest_step(commit_pc, commit_next_pc);
+      }
     }
   }
 
