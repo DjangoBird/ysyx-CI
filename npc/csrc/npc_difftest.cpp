@@ -124,3 +124,9 @@ void npc_difftest_step(uint32_t pc, uint32_t npc) {
   }
 }
 
+void npc_difftest_skip_ref(uint32_t npc) {
+  if (!difftest_on) return;
+
+  DiffCpuState regs = dut_snapshot(npc);
+  ref_difftest_regcpy(&regs, DIFFTEST_TO_REF);
+}
