@@ -1,6 +1,10 @@
 `include "minirv_defs.vh"
 
 module npc_id_stage(
+    input  wire        in_valid,
+    output wire        in_ready,
+    output wire        out_valid,
+    input  wire        out_ready,
     input  wire [31:0] instr,
     output wire [6:0]  opcode,
     output wire [4:0]  rd_raw,
@@ -18,6 +22,9 @@ module npc_id_stage(
     output wire [31:0] imm_j,
     output wire        is_ebreak
 );
+  assign in_ready = out_ready;
+  assign out_valid = in_valid;
+
   assign opcode = instr[6:0];
   assign rd_raw = instr[11:7];
   assign funct3 = instr[14:12];

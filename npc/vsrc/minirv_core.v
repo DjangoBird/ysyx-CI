@@ -3,13 +3,21 @@
 module minirv_core (
     input  wire         clk,
     input  wire         rst,
+    input  wire         commit_ready,
 
   // instruction memory interface
   output wire [31:0]  imem_addr,
+  output wire         imem_req_valid,
+  input  wire         imem_req_ready,
+  input  wire         imem_resp_valid,
+  output wire         imem_resp_ready,
   input  wire [31:0]  imem_rdata,
 
   // data memory interface
   output wire         dmem_valid,
+  input  wire         dmem_req_ready,
+  input  wire         dmem_resp_valid,
+  output wire         dmem_resp_ready,
   output wire         dmem_we,
   output wire [3:0]   dmem_wmask,
   output wire [31:0]  dmem_addr,
@@ -19,6 +27,16 @@ module minirv_core (
   // trap interface
   output wire         trap,
   output wire [31:0]  trap_code,
+  output wire         commit_valid,
+  output wire [31:0]  commit_pc,
+  output wire [31:0]  commit_instr,
+  output wire [31:0]  commit_next_pc,
+  output wire         commit_mem_valid,
+  output wire         commit_mem_we,
+  output wire [3:0]   commit_mem_wmask,
+  output wire [31:0]  commit_mem_addr,
+  output wire [31:0]  commit_mem_wdata,
+  output wire [31:0]  commit_mem_rdata,
 
   // debug observation port
   output wire [31:0]  dbg_pc,
@@ -79,10 +97,26 @@ module minirv_core (
   wire        csr_write_enable;
   wire [31:0] csr_write_data;
   wire        ecall;
+  wire        if_valid;
+  wire        if_ready;
+  wire        id_valid;
+  wire        id_ready;
+  wire        ex_valid;
+  wire        ex_ready;
+  wire        mem_valid;
+  wire        mem_ready;
+  wire        ex_dmem_valid;
+  wire        ex_dmem_we;
+  wire [3:0]  ex_dmem_wmask;
+  wire [31:0] ex_dmem_addr;
+  wire [31:0] ex_dmem_wdata;
 
   npc_wb_stage u_wb (
     .clk     (clk),
     .rst     (rst),
+    .commit_ready(commit_ready),
+    .in_valid(mem_valid),
+    .in_ready(mem_ready),
     .pc_next (pc_next),
     .wb_en   (wb_en),
     .wb_idx  (wb_idx),
@@ -107,14 +141,26 @@ module minirv_core (
   );
 
   npc_if_stage u_if (
+    .clk        (clk),
+    .rst        (rst),
     .pc         (pc),
     .imem_rdata (imem_rdata),
+    .imem_req_valid(imem_req_valid),
+    .imem_req_ready(imem_req_ready),
+    .imem_resp_valid(imem_resp_valid),
+    .imem_resp_ready(imem_resp_ready),
+    .out_ready  (if_ready),
+    .out_valid  (if_valid),
     .imem_addr  (imem_addr),
     .instr      (instr),
     .pc_next_seq(pc_next_seq)
   );
 
   npc_id_stage u_id (
+    .in_valid (if_valid),
+    .in_ready (if_ready),
+    .out_valid(id_valid),
+    .out_ready(id_ready),
     .instr    (instr),
     .opcode   (opcode),
     .rd_raw   (rd_raw),
@@ -177,6 +223,10 @@ module minirv_core (
   );
 
   npc_ex_stage u_ex (
+    .in_valid     (id_valid),
+    .in_ready     (id_ready),
+    .out_valid    (ex_valid),
+    .out_ready    (ex_ready),
     .opcode        (opcode),
     .rd_raw        (rd_raw),
     .funct3        (funct3),
@@ -202,11 +252,11 @@ module minirv_core (
     .wb_idx        (wb_idx),
     .wb_data_pre   (wb_data_pre),
     .wb_from_mem   (wb_from_mem),
-    .dmem_valid    (dmem_valid),
-    .dmem_we       (dmem_we),
-    .dmem_wmask    (dmem_wmask),
-    .dmem_addr     (dmem_addr),
-    .dmem_wdata    (dmem_wdata),
+    .dmem_valid    (ex_dmem_valid),
+    .dmem_we       (ex_dmem_we),
+    .dmem_wmask    (ex_dmem_wmask),
+    .dmem_addr     (ex_dmem_addr),
+    .dmem_wdata    (ex_dmem_wdata),
     .load_byte_off (load_byte_off),
     .load_funct3   (load_funct3),
     .pc_next       (pc_next),
@@ -219,14 +269,43 @@ module minirv_core (
   );
 
   npc_mem_stage u_mem (
+    .clk           (clk),
+    .rst           (rst),
+    .in_valid      (ex_valid),
+    .in_ready      (ex_ready),
+    .out_valid     (mem_valid),
+    .out_ready     (mem_ready),
+    .dmem_valid_in (ex_dmem_valid),
+    .dmem_we_in    (ex_dmem_we),
+    .dmem_wmask_in (ex_dmem_wmask),
+    .dmem_addr_in  (ex_dmem_addr),
+    .dmem_wdata_in (ex_dmem_wdata),
     .wb_from_mem   (wb_from_mem),
     .load_funct3   (load_funct3),
     .load_byte_off (load_byte_off),
     .dmem_rdata    (dmem_rdata),
     .wb_data_pre   (wb_data_pre),
-    .wb_data       (wb_data)
+    .wb_data       (wb_data),
+    .dmem_req_valid(dmem_valid),
+    .dmem_req_ready(dmem_req_ready),
+    .dmem_req_we   (dmem_we),
+    .dmem_req_wmask(dmem_wmask),
+    .dmem_req_addr (dmem_addr),
+    .dmem_req_wdata(dmem_wdata),
+    .dmem_resp_valid(dmem_resp_valid),
+    .dmem_resp_ready(dmem_resp_ready),
+    .commit_mem_valid(commit_mem_valid)
   );
 
   assign dbg_pc = pc;
+  assign commit_valid = mem_valid && mem_ready;
+  assign commit_pc = pc;
+  assign commit_instr = instr;
+  assign commit_next_pc = pc_next;
+  assign commit_mem_we = ex_dmem_we;
+  assign commit_mem_wmask = ex_dmem_wmask;
+  assign commit_mem_addr = ex_dmem_addr;
+  assign commit_mem_wdata = ex_dmem_wdata;
+  assign commit_mem_rdata = dmem_rdata;
 
 endmodule

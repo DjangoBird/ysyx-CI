@@ -1,6 +1,9 @@
 module npc_wb_stage(
     input  wire        clk,
     input  wire        rst,
+    input  wire        commit_ready,
+    input  wire        in_valid,
+    output wire        in_ready,
     input  wire [31:0] pc_next,
     input  wire        wb_en,
     input  wire [3:0]  wb_idx,
@@ -23,6 +26,8 @@ module npc_wb_stage(
     output wire [31:0] dbg_x14,
     output wire [31:0] dbg_x15
 );
+  assign in_ready = commit_ready;
+
   reg [31:0] pc_reg;
   reg [31:0] regs[0:15];
 
@@ -34,7 +39,7 @@ module npc_wb_stage(
       for (i = 0; i < 16; i = i + 1) begin
         regs[i] <= 32'b0;
       end
-    end else begin
+    end else if (in_valid && in_ready) begin
       pc_reg <= pc_next;
       if (wb_en && wb_idx != 4'd0) begin
         regs[wb_idx] <= wb_data;

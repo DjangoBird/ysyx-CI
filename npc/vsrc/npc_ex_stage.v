@@ -1,5 +1,9 @@
 `include "minirv_defs.vh"
 module npc_ex_stage(
+    input  wire        in_valid,
+    output wire        in_ready,
+    output wire        out_valid,
+    input  wire        out_ready,
     input  wire [6:0]  opcode,
     input  wire [4:0]  rd_raw,
     input  wire [2:0]  funct3,
@@ -40,6 +44,9 @@ module npc_ex_stage(
     output reg  [31:0] csr_write_data,
     output reg         ecall
 );
+  assign in_ready = out_ready;
+  assign out_valid = in_valid;
+
   wire [31:0] load_addr = rs1_val + imm_i;
   wire [31:0] store_addr = rs1_val + imm_s;
   wire [31:0] load_word_addr = {load_addr[31:2], 2'b00};
@@ -375,6 +382,16 @@ module npc_ex_stage(
       trap = 1'b1;
       trap_code = 32'd2;
       pc_next = pc;
+    end
+
+    if (!in_valid) begin
+      wb_en = 1'b0;
+      dmem_valid = 1'b0;
+      dmem_we = 1'b0;
+      dmem_wmask = 4'b0000;
+      csr_write_enable = 1'b0;
+      ecall = 1'b0;
+      trap = 1'b0;
     end
   end
 endmodule
