@@ -1,6 +1,7 @@
 module npc_wb_stage(
     input  wire        clk,
     input  wire        rst,
+    input  wire        commit_ready,
     input  wire        in_valid,
     output wire        in_ready,
     input  wire [31:0] pc_next,
@@ -25,7 +26,7 @@ module npc_wb_stage(
     output wire [31:0] dbg_x14,
     output wire [31:0] dbg_x15
 );
-  assign in_ready = 1'b1;
+  assign in_ready = commit_ready;
 
   reg [31:0] pc_reg;
   reg [31:0] regs[0:15];

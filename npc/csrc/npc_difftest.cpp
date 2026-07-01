@@ -89,7 +89,7 @@ void npc_difftest_init(const char *ref_so_file, long img_size, int port) {
     ref_difftest_memcpy(PMEM_BASE, pmem, (size_t)img_size, DIFFTEST_TO_REF);
   }
 
-  DiffCpuState regs = dut_snapshot(dut.imem_addr);
+  DiffCpuState regs = dut_snapshot(dut.dbg_pc_o);
   ref_difftest_regcpy(&regs, DIFFTEST_TO_REF);
   difftest_on = true;
 }

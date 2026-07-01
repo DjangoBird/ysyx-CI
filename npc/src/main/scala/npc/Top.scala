@@ -7,17 +7,44 @@ class Top extends RawModule {
 
   val clk = IO(Input(Clock()))
   val rst = IO(Input(Bool()))
+  val commit_ready = IO(Input(Bool()))
   val led = IO(Output(UInt(8.W)))
 
-  val imem_addr = IO(Output(UInt(32.W)))
-  val imem_rdata = IO(Input(UInt(32.W)))
+  val ifu_axi_arvalid = IO(Output(Bool()))
+  val ifu_axi_arready = IO(Input(Bool()))
+  val ifu_axi_araddr = IO(Output(UInt(32.W)))
+  val ifu_axi_rvalid = IO(Input(Bool()))
+  val ifu_axi_rready = IO(Output(Bool()))
+  val ifu_axi_rdata = IO(Input(UInt(32.W)))
+  val ifu_axi_rresp = IO(Input(UInt(2.W)))
+  val ifu_axi_awvalid = IO(Output(Bool()))
+  val ifu_axi_awready = IO(Input(Bool()))
+  val ifu_axi_awaddr = IO(Output(UInt(32.W)))
+  val ifu_axi_wvalid = IO(Output(Bool()))
+  val ifu_axi_wready = IO(Input(Bool()))
+  val ifu_axi_wdata = IO(Output(UInt(32.W)))
+  val ifu_axi_wstrb = IO(Output(UInt(4.W)))
+  val ifu_axi_bvalid = IO(Input(Bool()))
+  val ifu_axi_bready = IO(Output(Bool()))
+  val ifu_axi_bresp = IO(Input(UInt(2.W)))
 
-  val dmem_valid = IO(Output(Bool()))
-  val dmem_we = IO(Output(Bool()))
-  val dmem_wmask = IO(Output(UInt(4.W)))
-  val dmem_addr = IO(Output(UInt(32.W)))
-  val dmem_wdata = IO(Output(UInt(32.W)))
-  val dmem_rdata = IO(Input(UInt(32.W)))
+  val lsu_axi_arvalid = IO(Output(Bool()))
+  val lsu_axi_arready = IO(Input(Bool()))
+  val lsu_axi_araddr = IO(Output(UInt(32.W)))
+  val lsu_axi_rvalid = IO(Input(Bool()))
+  val lsu_axi_rready = IO(Output(Bool()))
+  val lsu_axi_rdata = IO(Input(UInt(32.W)))
+  val lsu_axi_rresp = IO(Input(UInt(2.W)))
+  val lsu_axi_awvalid = IO(Output(Bool()))
+  val lsu_axi_awready = IO(Input(Bool()))
+  val lsu_axi_awaddr = IO(Output(UInt(32.W)))
+  val lsu_axi_wvalid = IO(Output(Bool()))
+  val lsu_axi_wready = IO(Input(Bool()))
+  val lsu_axi_wdata = IO(Output(UInt(32.W)))
+  val lsu_axi_wstrb = IO(Output(UInt(4.W)))
+  val lsu_axi_bvalid = IO(Input(Bool()))
+  val lsu_axi_bready = IO(Output(Bool()))
+  val lsu_axi_bresp = IO(Input(UInt(2.W)))
 
   val trap = IO(Output(Bool()))
   val trap_code = IO(Output(UInt(32.W)))
@@ -27,6 +54,12 @@ class Top extends RawModule {
   val commit_next_pc = IO(Output(UInt(32.W)))
   val commit_trap = IO(Output(Bool()))
   val commit_trap_code = IO(Output(UInt(32.W)))
+  val commit_mem_valid = IO(Output(Bool()))
+  val commit_mem_we = IO(Output(Bool()))
+  val commit_mem_wmask = IO(Output(UInt(4.W)))
+  val commit_mem_addr = IO(Output(UInt(32.W)))
+  val commit_mem_wdata = IO(Output(UInt(32.W)))
+  val commit_mem_rdata = IO(Output(UInt(32.W)))
 
   val dbg_x0_o = IO(Output(UInt(32.W)))
   val dbg_x1_o = IO(Output(UInt(32.W)))
@@ -57,8 +90,19 @@ class Top extends RawModule {
     val traceDpi = Module(new TraceDpi)
 
     fetch.io.pc := pc.io.pc
-    fetch.io.imemRdata := imem_rdata
-    imem_addr := fetch.io.imemAddr
+    fetch.io.axiArReady := ifu_axi_arready
+    fetch.io.axiRValid := ifu_axi_rvalid
+    fetch.io.axiRData := ifu_axi_rdata
+    fetch.io.axiRResp := ifu_axi_rresp
+    ifu_axi_arvalid := fetch.io.axiArValid
+    ifu_axi_araddr := fetch.io.axiArAddr
+    ifu_axi_rready := fetch.io.axiRReady
+    ifu_axi_awvalid := false.B
+    ifu_axi_awaddr := 0.U
+    ifu_axi_wvalid := false.B
+    ifu_axi_wdata := 0.U
+    ifu_axi_wstrb := 0.U
+    ifu_axi_bready := false.B
     StageConnect(fetch.io.out, decode.io.in)
 
     regFile.io.readAddr1 := decode.io.rs1Idx
@@ -73,9 +117,16 @@ class Top extends RawModule {
     execute.io.mepc := csr.io.mepc
     StageConnect(execute.io.out, memory.io.in)
 
-    memory.io.dmemRdata := dmem_rdata
+    memory.io.axiArReady := lsu_axi_arready
+    memory.io.axiRValid := lsu_axi_rvalid
+    memory.io.axiRData := lsu_axi_rdata
+    memory.io.axiRResp := lsu_axi_rresp
+    memory.io.axiAwReady := lsu_axi_awready
+    memory.io.axiWReady := lsu_axi_wready
+    memory.io.axiBValid := lsu_axi_bvalid
+    memory.io.axiBResp := lsu_axi_bresp
     StageConnect(memory.io.out, writeback.io.in)
-    writeback.io.out.ready := true.B
+    writeback.io.out.ready := commit_ready
 
     val executeFire = execute.io.out.fire
     val commit = writeback.io.out.fire
@@ -94,11 +145,15 @@ class Top extends RawModule {
     pc.io.enable := commit
     pc.io.nextPc := Mux(writeback.io.out.bits.trap, pc.io.pc, writeback.io.out.bits.pcNext)
 
-    dmem_valid := executeFire && execute.io.out.bits.dmemValid
-    dmem_we := execute.io.out.bits.dmemWe
-    dmem_wmask := execute.io.out.bits.dmemWmask
-    dmem_addr := execute.io.out.bits.dmemAddr
-    dmem_wdata := execute.io.out.bits.dmemWdata
+    lsu_axi_arvalid := memory.io.axiArValid
+    lsu_axi_araddr := memory.io.axiArAddr
+    lsu_axi_rready := memory.io.axiRReady
+    lsu_axi_awvalid := memory.io.axiAwValid
+    lsu_axi_awaddr := memory.io.axiAwAddr
+    lsu_axi_wvalid := memory.io.axiWValid
+    lsu_axi_wdata := memory.io.axiWData
+    lsu_axi_wstrb := memory.io.axiWStrb
+    lsu_axi_bready := memory.io.axiBReady
 
     val trapLatched = RegInit(false.B)
     val trapCodeLatched = RegInit(0.U(32.W))
@@ -114,6 +169,12 @@ class Top extends RawModule {
     commit_next_pc := writeback.io.out.bits.pcNext
     commit_trap := commit && writeback.io.out.bits.trap
     commit_trap_code := writeback.io.out.bits.trapCode
+    commit_mem_valid := memory.io.commitMemValid
+    commit_mem_we := execute.io.out.bits.dmemWe
+    commit_mem_wmask := execute.io.out.bits.dmemWmask
+    commit_mem_addr := execute.io.out.bits.dmemAddr
+    commit_mem_wdata := execute.io.out.bits.dmemWdata
+    commit_mem_rdata := lsu_axi_rdata
 
     traceDpi.io.pc := pc.io.pc
     traceDpi.io.instr := fetch.io.out.bits.instr

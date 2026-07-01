@@ -1,4 +1,5 @@
 # ========== 基本配置 ==========
+SHELL := /bin/bash
 TOPNAME = top
 BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj_dir
@@ -9,6 +10,16 @@ NPC_HOME ?= $(abspath .)
 NEMU_HOME ?= $(abspath ../nemu)
 AM_HOME ?= $(abspath ../abstract-machine)
 export NPC_HOME NEMU_HOME AM_HOME
+CROSS_COMPILE ?= riscv64-unknown-elf-
+
+YOSYS ?= yosys
+YOSYS_STA_HOME ?= $(HOME)/tools/yosys-sta
+STA_FREQ_MHZ ?= 375
+STA_RESULT_DIR = $(BUILD_DIR)/sta/top-$(STA_FREQ_MHZ)MHz
+STA_NETLIST = $(STA_RESULT_DIR)/top.netlist.v
+STA_LIBERTY = $(YOSYS_STA_HOME)/pdk/nangate45/lib/Nangate45_typ.lib
+ACCESS_FAULT_ELF = $(BUILD_DIR)/access-fault.elf
+ACCESS_FAULT_BIN = $(BUILD_DIR)/access-fault.bin
 
 # ========== 路径 ==========
 NXDC_FILES = top.nxdc
@@ -111,6 +122,34 @@ clean:
 lint: $(VSRCS)
 	$(VERILATOR) --lint-only -Wall -Wno-DECLFILENAME -I$(abspath ./vsrc) --top-module $(TOPNAME) $(VSRCS)
 
-.PHONY: all run run-env sim clean nvboard lint
+sta: $(STA_NETLIST)
+	set -o pipefail; \
+	CLK_FREQ_MHZ=$(STA_FREQ_MHZ) CLK_PORT_NAME=clk \
+	  $(YOSYS_STA_HOME)/bin/iEDA -script \
+	  $(YOSYS_STA_HOME)/scripts/sta.tcl \
+	  $(abspath $(YOSYS_STA_HOME)/scripts/default.sdc) \
+	  $(abspath $(STA_NETLIST)) $(TOPNAME) nangate45 \
+	  2>&1 | tee $(STA_RESULT_DIR)/sta.log
+
+$(STA_NETLIST): $(VSRCS) scripts/synth.tcl
+	@mkdir -p $(STA_RESULT_DIR)
+	echo tcl $(abspath scripts/synth.tcl) $(TOPNAME) \
+	  $(abspath $(STA_LIBERTY)) \
+	  $$((1000000 / $(STA_FREQ_MHZ))) \
+	  $(abspath $(STA_NETLIST)) \"$(VSRCS)\" | \
+	  $(YOSYS) -g -l $(STA_RESULT_DIR)/yosys.log -s -
+
+test-access-fault: $(BIN) $(ACCESS_FAULT_BIN)
+	$(BIN) -b $(ACCESS_FAULT_BIN)
+
+$(ACCESS_FAULT_ELF): tests/access-fault.S tests/link.ld
+	@mkdir -p $(BUILD_DIR)
+	$(CROSS_COMPILE)gcc -march=rv32e_zicsr -mabi=ilp32e -nostdlib \
+	  -Wl,-T,$(abspath tests/link.ld) -o $@ $<
+
+$(ACCESS_FAULT_BIN): $(ACCESS_FAULT_ELF)
+	$(CROSS_COMPILE)objcopy -O binary $< $@
+
+.PHONY: all run run-env sim clean nvboard lint sta test-access-fault
 
 include ../Makefile
