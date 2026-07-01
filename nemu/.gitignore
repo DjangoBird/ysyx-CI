@@ -8,5 +8,8 @@
 !.gitignore
 !README.md
 !Kconfig
+!docs/c-d-stage-nemu-notes.md
+!docs/c-d-stage-experiment-report.md
+!docs/trace.md
 include/config
 include/generated
