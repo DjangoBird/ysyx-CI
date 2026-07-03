@@ -1,8 +1,9 @@
 # NPC 模拟器
 
-本目录包含同步维护的 Chisel 设计源和用于 Verilator 仿真的模块化 Verilog。
-当前目标是 RV32E 简单多周期实现，硬件内部按取指、译码、执行、访存、写回、
-寄存器堆和 PC 模块拆开，C++ 侧提供内存模型、单步时钟推进和 sdb 调试器。
+本目录的权威实现是用于 Verilator 和 STA 的模块化 Verilog。Chisel 目录保留早期
+级间消息重构参考，但尚未镜像最新仲裁器、Xbar、设备和 Access Fault，不能替代
+`vsrc` 的 B1 验收。当前目标是 RV32E 简单多周期实现，C++ 侧提供外部 SRAM、
+单步时钟推进和 sdb 调试器。
 
 ## 先决条件
 
@@ -26,27 +27,43 @@ cd ysyx-workbench/npc
 
 ## 当前设计思路
 
+相关说明文档：
+
+- [docs/npc-code-walkthrough.md](docs/npc-code-walkthrough.md)：按真实代码路径详细解释 Makefile、Verilog、C++ Verilator 外壳、NVBoard、AM 和 RT-Thread 如何串联。
+- [docs/b1-stage-bus-refactor.md](docs/b1-stage-bus-refactor.md)：记录从级间总线重构到 AXI4-Lite 的实现细节、验证过程和边界。
+- [docs/b1-completion-checklist.md](docs/b1-completion-checklist.md)：逐条核对 B1 要求，并说明每项功能具体在哪个文件实现。
+- [docs/debug-history.md](docs/debug-history.md)：记录这次 PA4 阶段 1 相关的历史排障过程，包括 `etrace`、AXI 握手、DiffTest 和 RT-Thread 问题。
+
 ### 硬件部分
 
 Verilog 顶层是 [vsrc/top.v](vsrc/top.v)。顶层模块名固定为 `top`，端口包括：
 
 - `clk/rst/led`
-- 指令存储器接口：`imem_req_valid/ready`、`imem_addr`、
-  `imem_resp_valid/ready`、`imem_rdata`
-- 数据存储器接口：`dmem_valid/req_ready`、`dmem_we/wmask/addr/wdata`、
-  `dmem_resp_valid/ready`、`dmem_rdata`
+- 单一外部 SRAM AXI4-Lite 接口：`mem_axi_ar*`、`mem_axi_r*`、
+  `mem_axi_aw*`、`mem_axi_w*`、`mem_axi_b*`。
 - trap 接口：`trap`, `trap_code`
 - sdb 调试寄存器端口：`dbg_x0_o` 到 `dbg_x15_o`
 
-当前 NPC 是 RV32E 简单多周期结构。IFU 和 LSU 均通过完整
-`reqValid/reqReady/respValid/respReady` SimpleBus 访问存储器。PC 复位地址为
-`0x80000000`，通用寄存器为 RV32E 规定的 `x0`-`x15`，其中 `x0` 恒为 0。
+当前 NPC 是 RV32E 简单多周期结构。IFU 和 LSU 先经过 AXI4-Lite 仲裁器，再由
+Xbar 按地址访问 SRAM、UART 或 CLINT。IFU 只使用 AR/R；LSU 的 load 使用 AR/R，
+store 使用相互独立的 AW/W 并等待 B 响应。顶层只保留一套外部 SRAM 接口。
+PC 复位地址为 `0x80000000`，通用寄存器为 RV32E 规定的 `x0`-`x15`。
+
+地址空间：
+
+| 设备 | 地址 |
+| --- | --- |
+| SRAM | `0x80000000` - `0x87ffffff` |
+| CLINT `mtime` low/high | `0xa0000048` / `0xa000004c` |
+| UART TX | `0xa00003f8` |
+
+UART 和 CLINT 均为 RTL AXI4-Lite slave。C++ 仿真环境只实现外部 SRAM，不再根据
+MMIO 地址模拟设备。
 
 各执行级之间使用 `valid/ready` 握手接口传递消息。正常运行时写回级始终 ready；
 完整握手测试模式会随机制造写回反压。PC、寄存器、CSR、访存和异常副作用都由有效消息
-或最终提交握手门控。Chisel 实现使用 `Decoupled` Bundle 和
-`StageConnect`，Verilog 实现使用对应的显式 `in_valid/in_ready`、
-`out_valid/out_ready` 端口。
+或最终提交握手门控。Verilog 使用显式 `in_valid/in_ready`、
+`out_valid/out_ready` 端口。Chisel 中的 `Decoupled`/`StageConnect` 是早期参考。
 
 模块分工：
 
@@ -86,20 +103,40 @@ C++ 运行时在 [csrc](csrc) 下：
 
 `single_cycle()` 的核心流程是：
 
-1. 根据事务状态驱动 request ready、response valid 和返回数据。
+1. 根据单一 SRAM AXI 事务状态驱动 request ready、response valid 和返回数据。
 2. 拉低 `clk` 并求值，判断请求/响应握手和指令提交事件。
 3. 推进时钟上升沿，消费已握手响应并登记已握手请求。
 4. 请求延迟结束后执行一次内存访问，并保持 response valid/数据直到握手。
 5. 仅在 `commit_valid` 时执行 trace 和 DiffTest。
 
-仿真器提供两种模式：
+仿真器提供两种 AXI 模式：
 
-- `NPC_BUS_MODE=valid`：请求恒 ready，响应在下一拍有效，用于验证有效信号版本。
-- `NPC_BUS_MODE=full`：随机 request ready、随机响应延迟和随机 WBU ready，用于验证
-  完整握手及反压。可用 `NPC_BUS_SEED` 固定随机序列。
+- `NPC_AXI_MODE=fixed`：默认模式，各请求通道恒 ready，响应无随机延迟。
+- `NPC_AXI_MODE=random`：随机各通道握手和响应延迟，并随机拉低 WBU ready。
+  使用 `NPC_AXI_SEED` 固定随机序列。
 
-完整握手模式还会检查请求在 `valid && !ready` 期间是否保持不变，并在 trap 时打印
-四类 SimpleBus stall 计数。
+随机模式会检查 SRAM AR/AW/W 在 `valid && !ready` 期间载荷是否保持不变，并在
+trap 时打印 AR/R/AW/W/B stall 计数。每次运行还会打印总周期、提交指令数和 IPC。
+
+### 主频和性能
+
+`make sta` 使用 Yosys、iEDA 和 Nangate45 工艺库综合包含仲裁器、Xbar、UART 和
+CLINT 的完整 NPC 顶层，不包含 C++ SRAM 模型：
+
+```bash
+make sta YOSYS=/path/to/yosys STA_FREQ_MHZ=350
+```
+
+2026-06-21 的评估结果：
+
+- `375 MHz`：setup slack `+0.013 ns`，TNS `0`。
+- `380 MHz`：setup slack `-0.022 ns`。
+- 报告临界频率：`376.892 MHz`，临界路径延迟 `2.611 ns`。
+- 综合面积：`13003.942 um^2`，Nangate45 标准单元模型。
+
+因此 AM 使用保守的 `375 MHz` 将 CLINT 周期换算为微秒。`microbench train` 固定
+延迟模式通过，统计为 `625796246` 周期、`196058201` 条指令、IPC `0.313294`；
+AM 实测总时间为 `1668.617 ms`，按 `375 MHz` 估算执行时间约 `1.669 s`。
 
 ### DiffTest 支持
 
@@ -237,15 +274,17 @@ make all
 make lint
 ```
 
-检查并生成 Chisel 版本：
+检查早期 Chisel 级间消息参考：
 
 ```bash
 sbt compile
 sbt run
 ```
 
-总线化重构的接口、握手规则和扩展方式见
-[docs/b1-stage-bus-refactor.md](docs/b1-stage-bus-refactor.md)。
+该命令不会生成当前 Verilator 使用的仲裁器/Xbar/设备顶层。总线化重构的接口、
+握手规则和扩展方式见
+[docs/b1-stage-bus-refactor.md](docs/b1-stage-bus-refactor.md)。如果需要按代码阅读 NPC，
+优先看 [docs/npc-code-walkthrough.md](docs/npc-code-walkthrough.md)。
 
 ## 推荐测试顺序
 
@@ -277,10 +316,10 @@ make ARCH=riscv32e-npc ALL=dummy run-batch
 make ARCH=riscv32e-npc ALL="add bit shift if-else load-store movsx" run-batch
 ```
 
-5. 验证完整握手和随机反压：
+5. 验证 AXI4-Lite 五通道握手和随机反压：
 
 ```bash
-NPC_BUS_MODE=full NPC_BUS_SEED=7 \
+NPC_AXI_MODE=random NPC_AXI_SEED=7 \
   make ARCH=riscv32e-npc \
   ALL="dummy add bit shift if-else load-store movsx" run-batch
 ```
@@ -288,7 +327,7 @@ NPC_BUS_MODE=full NPC_BUS_SEED=7 \
 6. 打开 DiffTest：
 
 ```bash
-NPC_BUS_MODE=full NPC_BUS_SEED=20260621 \
+NPC_AXI_MODE=random NPC_AXI_SEED=20260621 \
   make ARCH=riscv32e-npc ALL="add load-store movsx" difftest
 ```
 
@@ -476,6 +515,8 @@ make NPC_GUI=1 run IMG=path/to/img.bin
   - [csrc/npc_memory.h](csrc/npc_memory.h) / [csrc/npc_memory.cpp](csrc/npc_memory.cpp)
   - [csrc/npc_step.h](csrc/npc_step.h) / [csrc/npc_step.cpp](csrc/npc_step.cpp)
   - [csrc/npc_sdb.h](csrc/npc_sdb.h) / [csrc/npc_sdb.cpp](csrc/npc_sdb.cpp)
+  - [csrc/npc_trace.h](csrc/npc_trace.h) / [csrc/npc_trace.cpp](csrc/npc_trace.cpp)
+  - [csrc/npc_difftest.h](csrc/npc_difftest.h) / [csrc/npc_difftest.cpp](csrc/npc_difftest.cpp)
 - Verilog 硬件： [vsrc](vsrc)
   - [vsrc/top.v](vsrc/top.v)
   - [vsrc/minirv_core.v](vsrc/minirv_core.v)
@@ -485,6 +526,14 @@ make NPC_GUI=1 run IMG=path/to/img.bin
   - [vsrc/npc_ex_stage.v](vsrc/npc_ex_stage.v)
   - [vsrc/npc_mem_stage.v](vsrc/npc_mem_stage.v)
   - [vsrc/npc_wb_stage.v](vsrc/npc_wb_stage.v)
+  - [vsrc/npc_csr_file.v](vsrc/npc_csr_file.v)
+  - [vsrc/npc_axi_arbiter.v](vsrc/npc_axi_arbiter.v)
+  - [vsrc/npc_axi_xbar.v](vsrc/npc_axi_xbar.v)
+  - [vsrc/npc_axi_uart.v](vsrc/npc_axi_uart.v)
+  - [vsrc/npc_axi_clint.v](vsrc/npc_axi_clint.v)
+
+更详细的逐文件说明见
+[docs/npc-code-walkthrough.md](docs/npc-code-walkthrough.md)。
 
 ## 排查建议
 

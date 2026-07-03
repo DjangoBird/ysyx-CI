@@ -5,8 +5,16 @@
 !*.mk
 !*.[cSh]
 !*.v
+!*.vh
 !*.cc
 !*.cpp
 !.gitignore
 !README.md
+!docs/
+!docs/*.md
+!scripts/
+!scripts/*.tcl
+!tests/
+!tests/*.S
+!tests/*.ld
 build/
