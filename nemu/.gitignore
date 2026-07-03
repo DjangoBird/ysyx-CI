@@ -11,5 +11,7 @@
 !docs/c-d-stage-nemu-notes.md
 !docs/c-d-stage-experiment-report.md
 !docs/trace.md
+!docs/stage-notes/
+!docs/stage-notes/*.md
 include/config
 include/generated
