@@ -21,6 +21,7 @@ module npc_ex_stage(
     input  wire [31:0] a0_val,
     input  wire [31:0] pc,
     input  wire [31:0] pc_next_seq,
+    input  wire        instruction_access_fault,
     input  wire        is_ebreak,
     input  wire [31:0] csr_read_data,
     input  wire [31:0] mtvec,
@@ -42,7 +43,9 @@ module npc_ex_stage(
     output reg  [11:0] csr_addr,
     output reg         csr_write_enable,
     output reg  [31:0] csr_write_data,
-    output reg         ecall
+    output reg         ecall,
+    output reg         access_fault,
+    output reg  [31:0] access_fault_cause
 );
   assign in_ready = out_ready;
   assign out_valid = in_valid;
@@ -90,8 +93,15 @@ module npc_ex_stage(
     csr_write_enable = 1'b0;
     csr_write_data = 32'b0;
     ecall = 1'b0;
+    access_fault = 1'b0;
+    access_fault_cause = 32'b0;
 
-    case (opcode)
+    if (instruction_access_fault) begin
+      wb_en = 1'b0;
+      pc_next = mtvec;
+      access_fault = 1'b1;
+      access_fault_cause = 32'd1;
+    end else case (opcode)
       `OPCODE_OP: begin
         if (rd_raw < 5'd16 && rs1_raw < 5'd16 && rs2_raw < 5'd16) begin
           wb_en = (rd_idx != 4'd0);
@@ -391,6 +401,7 @@ module npc_ex_stage(
       dmem_wmask = 4'b0000;
       csr_write_enable = 1'b0;
       ecall = 1'b0;
+      access_fault = 1'b0;
       trap = 1'b0;
     end
   end

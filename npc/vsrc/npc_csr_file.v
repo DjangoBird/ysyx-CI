@@ -8,6 +8,9 @@ module npc_csr_file(
     input  wire [31:0] write_data,
     input  wire        ecall,
     input  wire [31:0] ecall_pc,
+    input  wire        access_fault,
+    input  wire [31:0] access_fault_cause,
+    input  wire [31:0] access_fault_pc,
     output wire [31:0] mtvec,
     output wire [31:0] mepc
 );
@@ -35,7 +38,10 @@ module npc_csr_file(
           default: begin end
         endcase
       end
-      if (ecall) begin
+      if (access_fault) begin
+        mepc_reg <= access_fault_pc;
+        mcause <= access_fault_cause;
+      end else if (ecall) begin
         mepc_reg <= ecall_pc;
         mcause <= 32'd11;
       end

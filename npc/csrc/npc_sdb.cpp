@@ -30,7 +30,7 @@ void sdb_set_batch_mode() {
 
 static uint32_t npc_pc() {
   update_mem_inputs();
-  return dut.imem_addr;
+  return dut.dbg_pc_o;
 }
 
 static uint32_t npc_reg(int idx) {

@@ -23,15 +23,6 @@ uint32_t pmem_read32(uint32_t addr) {
 }
 
 void pmem_write32(uint32_t addr, uint32_t data, uint8_t wmask) {
-  if (addr == 0xa00003f8u) {
-    for (int i = 0; i < 4; ++i) {
-      if (wmask & (1u << i)) {
-        std::putchar((data >> (i * 8)) & 0xff);
-        std::fflush(stdout);
-      }
-    }
-    return;
-  }
   if (!in_pmem(addr) || !in_pmem(addr + 3)) return;
   uint32_t off = pmem_off(addr);
   if (wmask & 0x1) pmem[off] = data & 0xff;
