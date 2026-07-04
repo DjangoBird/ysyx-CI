@@ -1,9 +1,14 @@
 # ========== 基本配置 ==========
 SHELL := /bin/bash
 TOPNAME = top
+STUID ?= ysyx_26060168
+STUID_NUM = $(patsubst ysyx_%,%,$(STUID))
 BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj_dir
 BIN = $(BUILD_DIR)/$(TOPNAME)
+CI_VERILOG = $(BUILD_DIR)/$(STUID).v
+IVERILOG ?= iverilog
+VVP ?= vvp
 
 VERILATOR = verilator
 NPC_HOME ?= $(abspath .)
@@ -20,12 +25,16 @@ STA_NETLIST = $(STA_RESULT_DIR)/top.netlist.v
 STA_LIBERTY = $(YOSYS_STA_HOME)/pdk/nangate45/lib/Nangate45_typ.lib
 ACCESS_FAULT_ELF = $(BUILD_DIR)/access-fault.elf
 ACCESS_FAULT_BIN = $(BUILD_DIR)/access-fault.bin
+IVERILOG_HEX = $(BUILD_DIR)/image.hex
+IVERILOG_SIM = $(BUILD_DIR)/sim-iverilog.vvp
+IVERILOG_NETLIST_SIM = $(BUILD_DIR)/sim-iverilog-netlist.vvp
 
 # ========== 路径 ==========
 NXDC_FILES = top.nxdc
 
 # ========== 源文件 ==========
 VSRCS = $(shell find $(abspath ./vsrc) -name "*.v" -o -name "*.sv")
+VHDRS = $(shell find $(abspath ./vsrc) -name "*.vh")
 CSRCS = $(shell find $(abspath ./csrc) -name "*.c" -o -name "*.cc" -o -name "*.cpp")
 
 
@@ -139,6 +148,38 @@ $(STA_NETLIST): $(VSRCS) scripts/synth.tcl
 	  $(abspath $(STA_NETLIST)) \"$(VSRCS)\" | \
 	  $(YOSYS) -g -l $(STA_RESULT_DIR)/yosys.log -s -
 
+verilog: $(CI_VERILOG)
+
+$(CI_VERILOG): $(VSRCS) $(VHDRS)
+	@mkdir -p $(BUILD_DIR)
+	@(printf '`ifndef NPC_RESET_PC\n`define NPC_RESET_PC 32'\''h3000_0000\n`endif\n\n'; \
+	  for file in $(VHDRS); do \
+	    cat $$file; \
+	    printf '\n'; \
+	  done; \
+	  for file in $(VSRCS); do \
+	    perl -ne 'next if /^\s*`include\s+"minirv_defs\.vh"\s*$$/; s/\bmodule\s+top\b/module $(STUID)/; s/32'\''h8000_0000/`NPC_RESET_PC/g; print' $$file; \
+	    printf '\n'; \
+	  done) > $@
+
+$(IVERILOG_HEX): $(IMG) sim/bin2vmem.py
+	@test -n "$(IMG)" || (echo "IMG is required" >&2; exit 1)
+	python3 sim/bin2vmem.py $(IMG) $@
+
+$(IVERILOG_SIM): $(CI_VERILOG) sim/iverilog_tb.v
+	$(IVERILOG) -g2012 -DNPC_RESET_PC="32'h8000_0000" -o $@ sim/iverilog_tb.v $(CI_VERILOG)
+
+sim-iverilog: $(IVERILOG_HEX) $(IVERILOG_SIM)
+	$(VVP) $(IVERILOG_SIM) +MEM=$(IVERILOG_HEX)
+
+$(IVERILOG_NETLIST_SIM): sim/iverilog_tb.v
+	@test -n "$(NETLIST)" || (echo "NETLIST is required" >&2; exit 1)
+	@test -n "$(CELLS)" || (echo "CELLS is required" >&2; exit 1)
+	$(IVERILOG) -g2012 -DNPC_RESET_PC="32'h8000_0000" -o $@ sim/iverilog_tb.v $(NETLIST) $(CELLS)
+
+sim-iverilog-netlist: $(IVERILOG_HEX) $(IVERILOG_NETLIST_SIM)
+	$(VVP) $(IVERILOG_NETLIST_SIM) +MEM=$(IVERILOG_HEX)
+
 test-access-fault: $(BIN) $(ACCESS_FAULT_BIN)
 	$(BIN) -b $(ACCESS_FAULT_BIN)
 
@@ -150,6 +191,6 @@ $(ACCESS_FAULT_ELF): tests/access-fault.S tests/link.ld
 $(ACCESS_FAULT_BIN): $(ACCESS_FAULT_ELF)
 	$(CROSS_COMPILE)objcopy -O binary $< $@
 
-.PHONY: all run run-env sim clean nvboard lint sta test-access-fault
+.PHONY: all run run-env sim clean nvboard lint sta verilog sim-iverilog sim-iverilog-netlist test-access-fault
 
 include ../Makefile
