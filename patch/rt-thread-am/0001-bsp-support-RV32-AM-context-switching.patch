@@ -1,0 +1,282 @@
+From 1f0b64988400bc9d8cb4b285a30dee9d48006eeb Mon Sep 17 00:00:00 2001
+From: Django <1606905012@qq.com>
+Date: Thu, 18 Jun 2026 20:22:32 +0800
+Subject: [PATCH 1/3] bsp: support RV32 AM context switching
+
+---
+ bsp/abstract-machine/.config                  | 22 ++++-----
+ bsp/abstract-machine/Makefile                 |  4 +-
+ bsp/abstract-machine/include/assert.h         |  6 +++
+ bsp/abstract-machine/include/extra.h          |  3 +-
+ bsp/abstract-machine/include/stdlib.h         |  6 +++
+ bsp/abstract-machine/include/string.h         |  6 +++
+ bsp/abstract-machine/include/time.h           | 36 ++++++++++++++
+ bsp/abstract-machine/src/context.c            | 49 +++++++++++++++++--
+ .../compilers/common/extension/sys/errno.h    |  4 +-
+ 9 files changed, 115 insertions(+), 21 deletions(-)
+ create mode 100644 bsp/abstract-machine/include/assert.h
+ create mode 100644 bsp/abstract-machine/include/stdlib.h
+ create mode 100644 bsp/abstract-machine/include/string.h
+ create mode 100644 bsp/abstract-machine/include/time.h
+
+diff --git a/bsp/abstract-machine/.config b/bsp/abstract-machine/.config
+index 90cf562..45ccf54 100644
+--- a/bsp/abstract-machine/.config
++++ b/bsp/abstract-machine/.config
+@@ -36,9 +36,9 @@ CONFIG_RT_USING_COMPONENTS_INIT=y
+ CONFIG_RT_USING_USER_MAIN=y
+ CONFIG_RT_MAIN_THREAD_STACK_SIZE=2048
+ CONFIG_RT_MAIN_THREAD_PRIORITY=10
+-CONFIG_RT_USING_MSH=y
+-CONFIG_RT_USING_FINSH=y
+-CONFIG_FINSH_USING_MSH=y
++# CONFIG_RT_USING_MSH is not set
++# CONFIG_RT_USING_FINSH is not set
++# CONFIG_FINSH_USING_MSH is not set
+ CONFIG_FINSH_THREAD_NAME="tshell"
+ CONFIG_FINSH_THREAD_PRIORITY=20
+ CONFIG_FINSH_THREAD_STACK_SIZE=4096
+@@ -49,7 +49,7 @@ CONFIG_FINSH_CMD_SIZE=80
+ CONFIG_MSH_USING_BUILT_IN_COMMANDS=y
+ CONFIG_FINSH_USING_DESCRIPTION=y
+ CONFIG_FINSH_ARG_MAX=10
+-CONFIG_RT_USING_DFS=y
++# CONFIG_RT_USING_DFS is not set
+ CONFIG_DFS_USING_POSIX=y
+ CONFIG_DFS_USING_WORKDIR=y
+ CONFIG_DFS_FD_MAX=32
+@@ -79,15 +79,15 @@ CONFIG_RT_USING_SERIAL=y
+ CONFIG_RT_USING_SERIAL_V1=y
+ CONFIG_RT_SERIAL_USING_DMA=y
+ CONFIG_RT_SERIAL_RB_BUFSZ=64
+-CONFIG_RT_USING_CPUTIME=y
++# CONFIG_RT_USING_CPUTIME is not set
+ CONFIG_CPUTIME_TIMER_FREQ=300000000
+-CONFIG_RT_USING_NULL=y
+-CONFIG_RT_USING_ZERO=y
+-CONFIG_RT_USING_RANDOM=y
+-CONFIG_RT_USING_RTC=y
++# CONFIG_RT_USING_NULL is not set
++# CONFIG_RT_USING_ZERO is not set
++# CONFIG_RT_USING_RANDOM is not set
++# CONFIG_RT_USING_RTC is not set
+ CONFIG_RT_LIBC_DEFAULT_TIMEZONE=8
+-CONFIG_RT_USING_UTEST=y
++# CONFIG_RT_USING_UTEST is not set
+ CONFIG_UTEST_THR_STACK_SIZE=4096
+ CONFIG_UTEST_THR_PRIORITY=20
+-CONFIG_RT_USING_ADT=y
++# CONFIG_RT_USING_ADT is not set
+ CONFIG_BOARD_AM=y
+diff --git a/bsp/abstract-machine/Makefile b/bsp/abstract-machine/Makefile
+index 8d70f31..8cab3e0 100644
+--- a/bsp/abstract-machine/Makefile
++++ b/bsp/abstract-machine/Makefile
+@@ -1,4 +1,5 @@
+ ARCH ?= native
++RTT_ROOT := $(abspath ../..)
+ AM_APPS_MK = build/${ARCH}/am-apps.mk
+ FILE_MK = files.mk
+ FILE_TMP = .tmp.$(FILE_MK)
+@@ -8,9 +9,10 @@ NAME = rtthread
+ SRCS = $(shell find src -name "*.c")
+ CFLAGS += -DHAVE_CCONFIG_H -D__RTTHREAD__
+ CFLAGS += -Wno-nonnull-compare
++CFLAGS += -I$(RTT_ROOT)/components/libc/compilers/common/extension
+ LDFLAGS += -T extra.ld
+ -include $(FILE_MK)
+--include $(AM_APPS_MK)
++SRCS := $(filter-out $(RTT_ROOT)/components/libc/compilers/common/%.c,$(SRCS))
+ include $(AM_HOME)/Makefile
+ 
+ $(RTCONFIG_H):
+diff --git a/bsp/abstract-machine/include/assert.h b/bsp/abstract-machine/include/assert.h
+new file mode 100644
+index 0000000..b0f8f08
+--- /dev/null
++++ b/bsp/abstract-machine/include/assert.h
+@@ -0,0 +1,6 @@
++#ifndef __AM_RTTHREAD_ASSERT_H__
++#define __AM_RTTHREAD_ASSERT_H__
++
++#include <klib.h>
++
++#endif
+diff --git a/bsp/abstract-machine/include/extra.h b/bsp/abstract-machine/include/extra.h
+index 27c72f4..8a880fb 100644
+--- a/bsp/abstract-machine/include/extra.h
++++ b/bsp/abstract-machine/include/extra.h
+@@ -1,8 +1,9 @@
+ typedef long suseconds_t;
+ typedef unsigned long useconds_t;
+-#include <sys/types.h>
+ 
+ #ifdef __ISA_NATIVE__
++#include <sys/types.h>
++
+ // rename posix API to avoid conflict with glibc in native
+ #define open      rt_open
+ #define creat     rt_creat
+diff --git a/bsp/abstract-machine/include/stdlib.h b/bsp/abstract-machine/include/stdlib.h
+new file mode 100644
+index 0000000..0146b23
+--- /dev/null
++++ b/bsp/abstract-machine/include/stdlib.h
+@@ -0,0 +1,6 @@
++#ifndef __AM_RTTHREAD_STDLIB_H__
++#define __AM_RTTHREAD_STDLIB_H__
++
++#include <klib.h>
++
++#endif
+diff --git a/bsp/abstract-machine/include/string.h b/bsp/abstract-machine/include/string.h
+new file mode 100644
+index 0000000..4aff42b
+--- /dev/null
++++ b/bsp/abstract-machine/include/string.h
+@@ -0,0 +1,6 @@
++#ifndef __AM_RTTHREAD_STRING_H__
++#define __AM_RTTHREAD_STRING_H__
++
++#include <klib.h>
++
++#endif
+diff --git a/bsp/abstract-machine/include/time.h b/bsp/abstract-machine/include/time.h
+new file mode 100644
+index 0000000..546bbff
+--- /dev/null
++++ b/bsp/abstract-machine/include/time.h
+@@ -0,0 +1,36 @@
++#ifndef __AM_RTTHREAD_TIME_H__
++#define __AM_RTTHREAD_TIME_H__
++
++#include <stddef.h>
++
++typedef long time_t;
++typedef long clock_t;
++
++struct tm {
++  int tm_sec;
++  int tm_min;
++  int tm_hour;
++  int tm_mday;
++  int tm_mon;
++  int tm_year;
++  int tm_wday;
++  int tm_yday;
++  int tm_isdst;
++};
++
++struct timespec {
++  time_t tv_sec;
++  long tv_nsec;
++};
++
++clock_t clock(void);
++double difftime(time_t time1, time_t time0);
++time_t mktime(struct tm *timeptr);
++time_t time(time_t *timer);
++char *asctime(const struct tm *timeptr);
++char *ctime(const time_t *timer);
++struct tm *gmtime(const time_t *timer);
++struct tm *localtime(const time_t *timer);
++size_t strftime(char *s, size_t max, const char *format, const struct tm *tm);
++
++#endif
+diff --git a/bsp/abstract-machine/src/context.c b/bsp/abstract-machine/src/context.c
+index ee38829..0ba032e 100644
+--- a/bsp/abstract-machine/src/context.c
++++ b/bsp/abstract-machine/src/context.c
+@@ -2,11 +2,25 @@
+ #include <klib.h>
+ #include <rtthread.h>
+ 
++static Context **switch_from = NULL;
++static Context **switch_to = NULL;
++
+ static Context* ev_handler(Event e, Context *c) {
+   switch (e.event) {
++    case EVENT_YIELD: {
++      Context **from = switch_from;
++      Context **to = switch_to;
++      switch_from = NULL;
++      switch_to = NULL;
++
++      if (from != NULL) {
++        *from = c;
++      }
++      assert(to != NULL && *to != NULL);
++      return *to;
++    }
+     default: printf("Unhandled event ID = %d\n", e.event); assert(0);
+   }
+-  return c;
+ }
+ 
+ void __am_cte_init() {
+@@ -14,11 +28,15 @@ void __am_cte_init() {
+ }
+ 
+ void rt_hw_context_switch_to(rt_ubase_t to) {
+-  assert(0);
++  switch_from = NULL;
++  switch_to = (Context **)to;
++  yield();
+ }
+ 
+ void rt_hw_context_switch(rt_ubase_t from, rt_ubase_t to) {
+-  assert(0);
++  switch_from = (Context **)from;
++  switch_to = (Context **)to;
++  yield();
+ }
+ 
+ void rt_hw_context_switch_interrupt(void *context, rt_ubase_t from, rt_ubase_t to, struct rt_thread *to_thread) {
+@@ -26,6 +44,27 @@ void rt_hw_context_switch_interrupt(void *context, rt_ubase_t from, rt_ubase_t t
+ }
+ 
+ rt_uint8_t *rt_hw_stack_init(void *tentry, void *parameter, rt_uint8_t *stack_addr, void *texit) {
+-  assert(0);
+-  return NULL;
++  extern void __am_rt_thread_entry(void);
++
++  uintptr_t top = (uintptr_t)stack_addr + sizeof(rt_ubase_t);
++  top = top / sizeof(uintptr_t) * sizeof(uintptr_t);
++  Context *c = kcontext((Area) { NULL, (void *)top },
++      (void (*)(void *))__am_rt_thread_entry, parameter);
++
++  c->gpr[8] = (uintptr_t)tentry;
++  c->gpr[9] = (uintptr_t)texit;
++  return (rt_uint8_t *)c;
++}
++
++#if defined(__riscv)
++asm(
++  ".globl __am_rt_thread_entry\n"
++  "__am_rt_thread_entry:\n"
++  "  jalr ra, s0, 0\n"
++  "  jalr zero, s1, 0\n"
++);
++#else
++void __am_rt_thread_entry(void) {
++  panic("RT-Thread context entry is only implemented for RISC-V");
+ }
++#endif
+diff --git a/components/libc/compilers/common/extension/sys/errno.h b/components/libc/compilers/common/extension/sys/errno.h
+index 6c6727c..ad1a483 100644
+--- a/components/libc/compilers/common/extension/sys/errno.h
++++ b/components/libc/compilers/common/extension/sys/errno.h
+@@ -38,9 +38,7 @@ defined in armcc/errno.h
+ #define ERROR_BASE_NO    0
+ #endif
+ 
+-#if defined(__ARMCC_VERSION) || defined(__IAR_SYSTEMS_ICC__)
+-#include <errno.h>
+-
++#if !defined(_WIN32)
+ #ifndef EPERM
+ #define EPERM            (ERROR_BASE_NO + 1)
+ #endif
+-- 
+2.43.0
+

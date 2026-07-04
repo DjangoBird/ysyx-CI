@@ -1,0 +1,222 @@
+From 72ced18aa5b790adce48172e291d937bb6e3b44d Mon Sep 17 00:00:00 2001
+From: Django <1606905012@qq.com>
+Date: Sun, 21 Jun 2026 00:15:48 +0800
+Subject: [PATCH 3/3] bsp: enable full RV32 RT-Thread environment
+
+---
+ bsp/abstract-machine/.config                  | 22 ++++++------
+ bsp/abstract-machine/Makefile                 | 10 ++++--
+ bsp/abstract-machine/include/assert.h         |  6 ----
+ bsp/abstract-machine/include/extra.h          |  6 +++-
+ bsp/abstract-machine/include/stdlib.h         |  6 ----
+ bsp/abstract-machine/include/string.h         |  6 ----
+ bsp/abstract-machine/include/time.h           | 36 -------------------
+ .../compilers/common/extension/sys/types.h    |  8 ++++-
+ 8 files changed, 30 insertions(+), 70 deletions(-)
+ delete mode 100644 bsp/abstract-machine/include/assert.h
+ delete mode 100644 bsp/abstract-machine/include/stdlib.h
+ delete mode 100644 bsp/abstract-machine/include/string.h
+ delete mode 100644 bsp/abstract-machine/include/time.h
+
+diff --git a/bsp/abstract-machine/.config b/bsp/abstract-machine/.config
+index 45ccf54..90cf562 100644
+--- a/bsp/abstract-machine/.config
++++ b/bsp/abstract-machine/.config
+@@ -36,9 +36,9 @@ CONFIG_RT_USING_COMPONENTS_INIT=y
+ CONFIG_RT_USING_USER_MAIN=y
+ CONFIG_RT_MAIN_THREAD_STACK_SIZE=2048
+ CONFIG_RT_MAIN_THREAD_PRIORITY=10
+-# CONFIG_RT_USING_MSH is not set
+-# CONFIG_RT_USING_FINSH is not set
+-# CONFIG_FINSH_USING_MSH is not set
++CONFIG_RT_USING_MSH=y
++CONFIG_RT_USING_FINSH=y
++CONFIG_FINSH_USING_MSH=y
+ CONFIG_FINSH_THREAD_NAME="tshell"
+ CONFIG_FINSH_THREAD_PRIORITY=20
+ CONFIG_FINSH_THREAD_STACK_SIZE=4096
+@@ -49,7 +49,7 @@ CONFIG_FINSH_CMD_SIZE=80
+ CONFIG_MSH_USING_BUILT_IN_COMMANDS=y
+ CONFIG_FINSH_USING_DESCRIPTION=y
+ CONFIG_FINSH_ARG_MAX=10
+-# CONFIG_RT_USING_DFS is not set
++CONFIG_RT_USING_DFS=y
+ CONFIG_DFS_USING_POSIX=y
+ CONFIG_DFS_USING_WORKDIR=y
+ CONFIG_DFS_FD_MAX=32
+@@ -79,15 +79,15 @@ CONFIG_RT_USING_SERIAL=y
+ CONFIG_RT_USING_SERIAL_V1=y
+ CONFIG_RT_SERIAL_USING_DMA=y
+ CONFIG_RT_SERIAL_RB_BUFSZ=64
+-# CONFIG_RT_USING_CPUTIME is not set
++CONFIG_RT_USING_CPUTIME=y
+ CONFIG_CPUTIME_TIMER_FREQ=300000000
+-# CONFIG_RT_USING_NULL is not set
+-# CONFIG_RT_USING_ZERO is not set
+-# CONFIG_RT_USING_RANDOM is not set
+-# CONFIG_RT_USING_RTC is not set
++CONFIG_RT_USING_NULL=y
++CONFIG_RT_USING_ZERO=y
++CONFIG_RT_USING_RANDOM=y
++CONFIG_RT_USING_RTC=y
+ CONFIG_RT_LIBC_DEFAULT_TIMEZONE=8
+-# CONFIG_RT_USING_UTEST is not set
++CONFIG_RT_USING_UTEST=y
+ CONFIG_UTEST_THR_STACK_SIZE=4096
+ CONFIG_UTEST_THR_PRIORITY=20
+-# CONFIG_RT_USING_ADT is not set
++CONFIG_RT_USING_ADT=y
+ CONFIG_BOARD_AM=y
+diff --git a/bsp/abstract-machine/Makefile b/bsp/abstract-machine/Makefile
+index 8cab3e0..ada7d72 100644
+--- a/bsp/abstract-machine/Makefile
++++ b/bsp/abstract-machine/Makefile
+@@ -1,5 +1,4 @@
+ ARCH ?= native
+-RTT_ROOT := $(abspath ../..)
+ AM_APPS_MK = build/${ARCH}/am-apps.mk
+ FILE_MK = files.mk
+ FILE_TMP = .tmp.$(FILE_MK)
+@@ -9,10 +8,15 @@ NAME = rtthread
+ SRCS = $(shell find src -name "*.c")
+ CFLAGS += -DHAVE_CCONFIG_H -D__RTTHREAD__
+ CFLAGS += -Wno-nonnull-compare
+-CFLAGS += -I$(RTT_ROOT)/components/libc/compilers/common/extension
++CFLAGS += -include extra.h
++ifneq ($(ARCH),native)
++CFLAGS += -I$(abspath ../../components/libc/compilers/common/extension)
++CFLAGS += -I$(abspath ../../components/libc/compilers/common/extension/fcntl/octal)
++CFLAGS += -include stddef.h
++endif
+ LDFLAGS += -T extra.ld
+ -include $(FILE_MK)
+-SRCS := $(filter-out $(RTT_ROOT)/components/libc/compilers/common/%.c,$(SRCS))
++-include $(AM_APPS_MK)
+ include $(AM_HOME)/Makefile
+ 
+ $(RTCONFIG_H):
+diff --git a/bsp/abstract-machine/include/assert.h b/bsp/abstract-machine/include/assert.h
+deleted file mode 100644
+index b0f8f08..0000000
+--- a/bsp/abstract-machine/include/assert.h
++++ /dev/null
+@@ -1,6 +0,0 @@
+-#ifndef __AM_RTTHREAD_ASSERT_H__
+-#define __AM_RTTHREAD_ASSERT_H__
+-
+-#include <klib.h>
+-
+-#endif
+diff --git a/bsp/abstract-machine/include/extra.h b/bsp/abstract-machine/include/extra.h
+index 8a880fb..1e22785 100644
+--- a/bsp/abstract-machine/include/extra.h
++++ b/bsp/abstract-machine/include/extra.h
+@@ -1,9 +1,13 @@
+ typedef long suseconds_t;
+ typedef unsigned long useconds_t;
+ 
+-#ifdef __ISA_NATIVE__
+ #include <sys/types.h>
+ 
++#ifdef __ISA_NATIVE__
++#include <sys/time.h>
++
++int rt_gettimeofday(struct timeval *tv, struct timezone *tz);
++
+ // rename posix API to avoid conflict with glibc in native
+ #define open      rt_open
+ #define creat     rt_creat
+diff --git a/bsp/abstract-machine/include/stdlib.h b/bsp/abstract-machine/include/stdlib.h
+deleted file mode 100644
+index 0146b23..0000000
+--- a/bsp/abstract-machine/include/stdlib.h
++++ /dev/null
+@@ -1,6 +0,0 @@
+-#ifndef __AM_RTTHREAD_STDLIB_H__
+-#define __AM_RTTHREAD_STDLIB_H__
+-
+-#include <klib.h>
+-
+-#endif
+diff --git a/bsp/abstract-machine/include/string.h b/bsp/abstract-machine/include/string.h
+deleted file mode 100644
+index 4aff42b..0000000
+--- a/bsp/abstract-machine/include/string.h
++++ /dev/null
+@@ -1,6 +0,0 @@
+-#ifndef __AM_RTTHREAD_STRING_H__
+-#define __AM_RTTHREAD_STRING_H__
+-
+-#include <klib.h>
+-
+-#endif
+diff --git a/bsp/abstract-machine/include/time.h b/bsp/abstract-machine/include/time.h
+deleted file mode 100644
+index 546bbff..0000000
+--- a/bsp/abstract-machine/include/time.h
++++ /dev/null
+@@ -1,36 +0,0 @@
+-#ifndef __AM_RTTHREAD_TIME_H__
+-#define __AM_RTTHREAD_TIME_H__
+-
+-#include <stddef.h>
+-
+-typedef long time_t;
+-typedef long clock_t;
+-
+-struct tm {
+-  int tm_sec;
+-  int tm_min;
+-  int tm_hour;
+-  int tm_mday;
+-  int tm_mon;
+-  int tm_year;
+-  int tm_wday;
+-  int tm_yday;
+-  int tm_isdst;
+-};
+-
+-struct timespec {
+-  time_t tv_sec;
+-  long tv_nsec;
+-};
+-
+-clock_t clock(void);
+-double difftime(time_t time1, time_t time0);
+-time_t mktime(struct tm *timeptr);
+-time_t time(time_t *timer);
+-char *asctime(const struct tm *timeptr);
+-char *ctime(const time_t *timer);
+-struct tm *gmtime(const time_t *timer);
+-struct tm *localtime(const time_t *timer);
+-size_t strftime(char *s, size_t max, const char *format, const struct tm *tm);
+-
+-#endif
+diff --git a/components/libc/compilers/common/extension/sys/types.h b/components/libc/compilers/common/extension/sys/types.h
+index cae4d4a..943063e 100644
+--- a/components/libc/compilers/common/extension/sys/types.h
++++ b/components/libc/compilers/common/extension/sys/types.h
+@@ -14,13 +14,19 @@
+ 
+ #include <stdint.h>
+ #include <stddef.h>
+-#include <time.h>
++#include <sys/_types.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+ 
+ typedef int32_t          clockid_t;
++typedef unsigned long    clock_t;
++typedef long long        time_t;
++#define __clock_t_defined
++#define _CLOCK_T_DECLARED
++#define __time_t_defined
++#define _TIME_T_DECLARED
+ typedef int32_t          key_t;         /* Used for interprocess communication. */
+ typedef int              pid_t;         /* Used for process IDs and process group IDs. */
+ typedef unsigned short   uid_t;
+-- 
+2.43.0
+

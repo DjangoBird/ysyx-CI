@@ -1,0 +1,91 @@
+From 4ef7562580efb732f258d04306fac87328b3fb65 Mon Sep 17 00:00:00 2001
+From: Django <1606905012@qq.com>
+Date: Thu, 18 Jun 2026 20:32:07 +0800
+Subject: [PATCH 2/3] bsp: support native thread startup
+
+---
+ bsp/abstract-machine/src/context.c | 47 +++++++++++++++++++++++++-----
+ 1 file changed, 40 insertions(+), 7 deletions(-)
+
+diff --git a/bsp/abstract-machine/src/context.c b/bsp/abstract-machine/src/context.c
+index 0ba032e..1542d92 100644
+--- a/bsp/abstract-machine/src/context.c
++++ b/bsp/abstract-machine/src/context.c
+@@ -7,6 +7,8 @@ static Context **switch_to = NULL;
+ 
+ static Context* ev_handler(Event e, Context *c) {
+   switch (e.event) {
++    case EVENT_IRQ_TIMER:
++      return c;
+     case EVENT_YIELD: {
+       Context **from = switch_from;
+       Context **to = switch_to;
+@@ -44,27 +46,58 @@ void rt_hw_context_switch_interrupt(void *context, rt_ubase_t from, rt_ubase_t t
+ }
+ 
+ rt_uint8_t *rt_hw_stack_init(void *tentry, void *parameter, rt_uint8_t *stack_addr, void *texit) {
+-  extern void __am_rt_thread_entry(void);
+-
+   uintptr_t top = (uintptr_t)stack_addr + sizeof(rt_ubase_t);
+   top = top / sizeof(uintptr_t) * sizeof(uintptr_t);
++
++#ifdef __ISA_NATIVE__
++  typedef struct {
++    void (*entry)(void *);
++    void *parameter;
++    void (*exit)(void);
++  } ThreadStart;
++
++  void __am_rt_thread_entry(void *arg);
++  Context *expected = (Context *)top - 1;
++  ThreadStart *start = (ThreadStart *)((uintptr_t)expected - sizeof(ThreadStart));
++  *start = (ThreadStart) {
++    .entry = tentry,
++    .parameter = parameter,
++    .exit = texit,
++  };
++  Context *c = kcontext((Area) { NULL, (void *)top },
++      __am_rt_thread_entry, start);
++#else
++  extern void __am_rt_thread_entry(void);
+   Context *c = kcontext((Area) { NULL, (void *)top },
+       (void (*)(void *))__am_rt_thread_entry, parameter);
+ 
+   c->gpr[8] = (uintptr_t)tentry;
+   c->gpr[9] = (uintptr_t)texit;
++#endif
+   return (rt_uint8_t *)c;
+ }
+ 
+-#if defined(__riscv)
++#ifdef __ISA_NATIVE__
++void __am_rt_thread_entry(void *arg) {
++  typedef struct {
++    void (*entry)(void *);
++    void *parameter;
++    void (*exit)(void);
++  } ThreadStart;
++
++  ThreadStart *start = arg;
++  void (*entry)(void *) = start->entry;
++  void *parameter = start->parameter;
++  void (*exit)(void) = start->exit;
++  entry(parameter);
++  exit();
++  assert(0);
++}
++#elif defined(__riscv)
+ asm(
+   ".globl __am_rt_thread_entry\n"
+   "__am_rt_thread_entry:\n"
+   "  jalr ra, s0, 0\n"
+   "  jalr zero, s1, 0\n"
+ );
+-#else
+-void __am_rt_thread_entry(void) {
+-  panic("RT-Thread context entry is only implemented for RISC-V");
+-}
+ #endif
+-- 
+2.43.0
+
