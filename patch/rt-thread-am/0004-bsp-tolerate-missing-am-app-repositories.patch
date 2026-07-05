@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Django <1606905012@qq.com>
+Date: Sun, 5 Jul 2026 15:50:00 +0800
+Subject: [PATCH 4/4] bsp: tolerate missing AM app repositories
+
+---
+ bsp/abstract-machine/integrate-am-apps.py | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/bsp/abstract-machine/integrate-am-apps.py b/bsp/abstract-machine/integrate-am-apps.py
+index a6b19c4..f7f5a6b 100644
+--- a/bsp/abstract-machine/integrate-am-apps.py
++++ b/bsp/abstract-machine/integrate-am-apps.py
+@@ -90,7 +90,7 @@ static void am_app_start_thread(void *args) {
+   const char *mainargs = ((void **)args)[1];
+   fn(mainargs);
+ }
+-static void am_app_start_wrapper(const char *app_name, void *app_main, int argc, char *argv[]) {
++static void __attribute__((unused)) am_app_start_wrapper(const char *app_name, void *app_main, int argc, char *argv[]) {
+   memcpy(am_apps_data.start, am_apps_data_content, am_apps_data.end - am_apps_data.start);
+   memset(am_apps_bss.start, 0, am_apps_bss.end - am_apps_bss.start);
+   heap = am_apps_heap;
+@@ -107,6 +107,10 @@ void __rt_am_halt(int code) {
+ }
+ """)
+ for app in app_dir_list:
+-    integrate(app)
++    if app.exists():
++        integrate(app)
++    else:
++        print(f"Skip missing AM app repository: {app}", file=sys.stderr)
++
+ am_app_mk_fp.close()
+ am_app_c_fp.close()
+-- 
+2.43.0
